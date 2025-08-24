@@ -21,6 +21,9 @@ struct ContentView: View {
                 NoteEditorView(note: note) { updated in store.upsert(updated) }
                     .navigationBarTitleDisplayMode(.inline)
             }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
         } }
     
     @ViewBuilder
@@ -137,8 +140,136 @@ enum AppBackground {
     static let row = Color(.systemGray6).opacity(0.55)
 }
 
+// MARK: - Settings View
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var apiKey: String = ""
+    @State private var modelName: String = "gpt-4o-mini"
+    @State private var isValidating: Bool = false
+    @State private var validationMessage: String = ""
+    @State private var showValidationAlert: Bool = false
+    
+    private let aiService = OpenAIService()
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField("Enter your OpenAI API key", text: $apiKey)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .onAppear(perform: loadAPIKey)
+                        .accessibilityLabel("API Key")
+                    
+                    TextField("Model name", text: $modelName)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .accessibilityLabel("Model Name")
+                    
+                    Button(action: validateAPIKey) {
+                        HStack {
+                            if isValidating {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Validating...")
+                            } else {
+                                Image(systemName: "checkmark.shield")
+                                Text("Validate Key")
+                            }
+                        }
+                    }
+                    .disabled(apiKey.isEmpty || isValidating)
+                    .accessibilityLabel("Validate API Key")
+                    
+                } header: {
+                    Text("OpenAI Configuration")
+                } footer: {
+                    Text("Your API key is stored securely in Keychain and never leaves your device.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Section {
+                    Text("All data stays on your device. AI processing uses your OpenAI account. No analytics or tracking.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Privacy")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        saveSettings()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .alert("Validation Result", isPresented: $showValidationAlert) {
+                Button("OK") { }
+            } message: {
+                Text(validationMessage)
+            }
+            .background(AppBackground.gradient.ignoresSafeArea())
+        }
+    }
+    
+    private func loadAPIKey() {
+        do {
+            if let key = try KeychainHelper.loadAPIKey() {
+                apiKey = key
+            }
+        } catch {
+            // Silent fail - no existing key
+        }
+    }
+    
+    private func saveSettings() {
+        // Save API key to keychain
+        if !apiKey.isEmpty {
+            do {
+                try KeychainHelper.save(apiKey: apiKey)
+            } catch {
+                // Could show error alert, but keep it simple for MVP
+            }
+        }
+        
+        // Update AI service model
+        aiService.updateModel(modelName)
+    }
+    
+    private func validateAPIKey() {
+        guard !apiKey.isEmpty else { return }
+        
+        isValidating = true
+        validationMessage = ""
+        
+        Task { @MainActor in
+            do {
+                // Try a simple API call to validate the key
+                _ = try await aiService.suggestTitle(for: "Test validation")
+                validationMessage = "✅ API key is valid and working!"
+            } catch let error as AIError {
+                validationMessage = "❌ " + (error.errorDescription ?? "Validation failed")
+            } catch {
+                validationMessage = "❌ Validation failed: \(error.localizedDescription)"
+            }
+            
+            isValidating = false
+            showValidationAlert = true
+        }
+    }
+}
+
 #Preview {
     let store = NotesStore(notes: Note.seed)
     return ContentView()
         .environmentObject(store)
+}
+
+#Preview("Settings") {
+    SettingsView()
 }
