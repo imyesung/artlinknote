@@ -130,78 +130,51 @@ struct NoteEditorView: View {
             }
             .padding(.horizontal)
             
-            // Progressive Zoom Control (Segment Style) - only show when active
-            if let currentLevel = zoomLevel {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 6) {
-                        Image(systemName: currentLevel.icon)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.blue)
-                        Text(currentLevel.displayName)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.primary)
-                    }
-                    
-                    // Custom Segment Control
-                    HStack(spacing: 0) {
-                        ForEach(NotesStore.SummaryLevel.allCases, id: \.rawValue) { level in
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    if level == currentLevel {
-                                        zoomLevel = nil // Toggle off if same level
-                                    } else {
-                                        zoomLevel = level
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: level.icon)
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(level == currentLevel ? .white : .primary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(level == currentLevel ? .blue : .clear)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            
-                            if level.rawValue < NotesStore.SummaryLevel.allCases.count {
-                                Divider()
-                                    .frame(height: 20)
-                                    .opacity(level == currentLevel || NotesStore.SummaryLevel(rawValue: level.rawValue + 1) == currentLevel ? 0 : 0.3)
-                            }
-                        }
-                    }
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                    )
-                }
-                .padding(.horizontal)
-            } else {
-                // Show zoom level buttons when in normal mode
-                HStack(spacing: 8) {
+            // Progressive Zoom Control (Always visible - Fixed UI)
+            VStack(alignment: .leading, spacing: 12) {
+                // Custom Segment Control - Always visible
+                HStack(spacing: 0) {
                     ForEach(NotesStore.SummaryLevel.allCases, id: \.rawValue) { level in
                         Button {
                             withAnimation(.easeInOut(duration: 0.3)) {
-                                zoomLevel = level
+                                if level == zoomLevel {
+                                    zoomLevel = nil // Toggle off if same level
+                                } else {
+                                    zoomLevel = level
+                                }
                             }
                         } label: {
-                            Image(systemName: level.icon)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.primary)
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: Circle())
+                            VStack(spacing: 4) {
+                                Image(systemName: level.icon)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(level == zoomLevel ? .white : .primary)
+                                Text(level.displayName)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(level == zoomLevel ? .white : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(level == zoomLevel ? .blue : .clear)
+                            )
                         }
                         .buttonStyle(.plain)
+                        
+                        if level.rawValue < NotesStore.SummaryLevel.allCases.count {
+                            Divider()
+                                .frame(height: 20)
+                                .opacity(level == zoomLevel || NotesStore.SummaryLevel(rawValue: level.rawValue + 1) == zoomLevel ? 0 : 0.3)
+                        }
                     }
-                    Spacer()
                 }
-                .padding(.horizontal)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
             }
+            .padding(.horizontal)
             
             // Content Area - Either Normal Editor or Progressive View
             if let currentLevel = zoomLevel {
