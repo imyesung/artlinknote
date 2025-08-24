@@ -8,7 +8,7 @@ import SwiftUI
 struct NoteEditorView: View {
     @State private var draft: Note
     @State private var zoomLevel: NotesStore.SummaryLevel? = nil
-    @State private var showBeats: Bool = false
+    // @State private var showBeats: Bool = false // COMMENTED OUT - Can be reused for AI chatbot toggle
     let onCommit: (Note) -> Void
     @EnvironmentObject private var store: NotesStore
     
@@ -204,7 +204,9 @@ struct NoteEditorView: View {
                         // Auto-scroll to current level when changed
                         if let level = newLevel {
                             withAnimation(.easeInOut(duration: 0.4)) {
-                                scrollProxy.scrollTo("level-\(level.rawValue)", anchor: .center)
+                                // Use .top anchor for FULL level to focus on editing area
+                                let anchor: UnitPoint = level == .full ? .top : .center
+                                scrollProxy.scrollTo("level-\(level.rawValue)", anchor: anchor)
                             }
                         }
                     }
@@ -238,9 +240,16 @@ struct NoteEditorView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
             }
 
-            // Beats Section Toggle
+            // MARK: - Reserved Space for Future AI Chatbot Integration
+            // Beats Section Toggle - COMMENTED OUT FOR FUTURE AI CHATBOT USE
             if zoomLevel == .full {
                 VStack(alignment: .leading, spacing: 8) {
+                    // Reserved grey layout space - can be used for AI chatbot UI
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(height: 60) // Maintains layout space
+                    
+                    /* COMMENTED OUT - BEATS FUNCTIONALITY
                     HStack {
                         Text("Beats").font(.caption.smallCaps()).foregroundStyle(.secondary)
                         Spacer()
@@ -268,6 +277,7 @@ struct NoteEditorView: View {
                             }
                         }
                     }
+                    */
                 }
                 .padding(.horizontal)
             }
