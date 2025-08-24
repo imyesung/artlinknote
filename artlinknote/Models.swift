@@ -170,7 +170,8 @@ extension NotesStore {
         guard !sentences.isEmpty else { return body }
         switch level {
         case .line:
-            return sentences.first!.prefix(120).trimmingCharacters(in: .whitespaces) + (sentences.first!.count > 120 ? "…" : "")
+            guard let first = sentences.first else { return "No sentences found" }
+            return first.prefix(120).trimmingCharacters(in: .whitespaces) + (first.count > 120 ? "…" : "")
         case .key:
             let kws = topKeywords(from: body, max: 5)
             return kws.map { "• \($0)" }.joined(separator: "\n")

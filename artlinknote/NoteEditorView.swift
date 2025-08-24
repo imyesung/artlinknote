@@ -90,13 +90,21 @@ struct NoteEditorView: View {
                     }
                 } else {
                     ScrollView {
-                        let text = store.summary(for: draft, level: zoomLevel)
-                        Text(text)
-                            .font(.system(.body, design: .serif))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                            .padding(.horizontal, 4)
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Hardcoded test to see if this section is even shown
+                            Text("🔍 ZOOM MODE: \(zoomLevelName)")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                            
+                            // Test local summary generation
+                            let text = testSummary()
+                            Text(text)
+                                .font(.system(.body, design: .serif))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(12)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal, 4)
                     }
                 }
             }
@@ -257,62 +265,115 @@ struct NoteEditorView: View {
     
     private func toggleStar() { draft.starred.toggle(); draft.touch(); onCommit(draft) }
     
-    // MARK: - AI Methods
-    @MainActor
-    private func suggestTitle() async {
-        guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+    // MARK: - Test Helpers
+    private var zoomLevelName: String {
+        switch zoomLevel {
+        case .line: return "LINE"
+        case .key: return "KEY" 
+        case .brief: return "BRIEF"
+        case .full: return "FULL"
+        }
+    }
+    
+    private func testSummary() -> String {
+        let body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return "📝 No content to summarize" }
         
-        isProcessingAI = true
+        switch zoomLevel {
+        case .line:
+            let firstLine = body.components(separatedBy: .newlines).first ?? ""
+            return "📏 FIRST LINE:\n\(firstLine.prefix(120))..."
+        case .key:
+            let words = body.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count > 3 }
+                .prefix(5)
+            return "🔑 KEY WORDS:\n• " + words.joined(separator: "\n• ")
+        case .brief:
+            let sentences = body.components(separatedBy: CharacterSet(charactersIn: ".!?"))
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .prefix(3)
+            return "📋 BRIEF SUMMARY:\n" + sentences.joined(separator: ". ")
+        case .full:
+            return body // This shouldn't be called since Full shows TextEditor
+        }
+    }
+    
+    // MARK: - AI Methods
+    private func suggestTitle() async {
+        await MainActor.run {
+            guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+            isProcessingAI = true
+        }
         
         do {
             let title = try await aiService.suggestTitle(for: draft.body)
-            pendingTitle = title
-            
-            // Auto-apply if current title is empty, otherwise ask for confirmation
-            if draft.title.trimmed().isEmpty {
-                applyTitle()
-            } else {
-                showTitleConfirm = true
+            await MainActor.run {
+                pendingTitle = title
+                
+                // Auto-apply if current title is empty, otherwise ask for confirmation
+                if draft.title.trimmed().isEmpty {
+                    applyTitle()
+                } else {
+                    showTitleConfirm = true
+                }
             }
         } catch {
-            handleAIError(error)
+            await MainActor.run {
+                handleAIError(error)
+            }
         }
         
-        isProcessingAI = false
+        await MainActor.run {
+            isProcessingAI = false
+        }
     }
     
-    @MainActor
     private func generateSummary() async {
-        guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
-        
-        isProcessingAI = true
+        await MainActor.run {
+            guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+            isProcessingAI = true
+        }
         
         do {
             let summary = try await aiService.rehearsalSummary(for: draft.body)
-            pendingSummary = summary
-            showSummaryResult = true
+            await MainActor.run {
+                pendingSummary = summary
+                showSummaryResult = true
+            }
         } catch {
-            handleAIError(error)
+            await MainActor.run {
+                handleAIError(error)
+            }
         }
         
-        isProcessingAI = false
+        await MainActor.run {
+            isProcessingAI = false
+        }
     }
     
-    @MainActor
     private func extractTags() async {
-        guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
-        
-        isProcessingAI = true
+        await MainActor.run {
+            guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+            isProcessingAI = true
+        }
         
         do {
             let tags = try await aiService.extractTags(for: draft.body)
-            pendingTags = tags
-            showTagsResult = true
+            await MainActor.run {
+                pendingTags = tags
+                showTagsResult = true
+            }
         } catch {
-            handleAIError(error)
+            await MainActor.run {
+                handleAIError(error)
+            }
         }
         
-        isProcessingAI = false
+        await MainActor.run {
+            isProcessingAI = false
+        }
     }
     
     private func handleAIError(_ error: Error) {
