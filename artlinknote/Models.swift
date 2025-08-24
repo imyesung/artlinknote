@@ -21,7 +21,7 @@ extension Note {
     static var seed: [Note] { [sampleA, sampleB] }
 }
 
-fileprivate extension String { func trimmed() -> String { trimmingCharacters(in: .whitespacesAndNewlines) } }
+extension String { func trimmed() -> String { trimmingCharacters(in: .whitespacesAndNewlines) } }
 
 enum NoteFilter: String, CaseIterable, Identifiable { case all, starred; var id: String { rawValue } }
 

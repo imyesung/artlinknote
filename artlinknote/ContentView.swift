@@ -18,101 +18,99 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Segmented control
-                Picker("Filter", selection: $filter) {
-                    Text("All").tag(NoteFilter.all)
-                    Text("Star").tag(NoteFilter.starred)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-                
-                if filtered.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 38))
-                            .foregroundStyle(.secondary)
-                        Text("No Notes")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        Text("Tap + to create your first cue note.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppBackground.gradient)
-                } else {
-                    List {
-                        ForEach(filtered) { note in
-                            Button {
-                                editingNote = note
-                                showEditor = true
-                            } label: {
-                                HStack(alignment: .top, spacing: 8) {
-                                    if note.starred {
-                                        Image(systemName: "star.fill")
-                                            .symbolRenderingMode(.hierarchical)
-                                            .foregroundStyle(.yellow)
-                                            .accessibilityLabel("Starred")
-                                    }
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(note.title.isEmpty ? "(Untitled)" : note.title)
-                                            .font(.headline)
-                                            .lineLimit(1)
-                                        Text(note.body.trimmed())
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-                                    Spacer()
-                                    Text(note.updatedAt, style: .relative)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) { store.delete(id: note.id) } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                Button { store.toggleStar(id: note.id) } label: {
-                                    Label(note.starred ? "Unstar" : "Star", systemImage: note.starred ? "star.slash" : "star")
-                                }
-                                .tint(.yellow)
-                            }
-                        }
-                        .listRowBackground(AppBackground.row)
-                    }
-                    .listStyle(.plain)
-                    .background(AppBackground.gradient)
-                }
+        NavigationStack { mainContent }
+    }
+    
+    @ViewBuilder
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            filterPicker
+            Group {
+                if filtered.isEmpty { emptyState } else { notesList }
             }
-            .navigationTitle("Actor Notes")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { createAndEditNew() } label: {
-                        Image(systemName: "plus.circle.fill")
+        }
+        .navigationTitle("Actor Notes")
+        .toolbar { toolbarContent }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        .sheet(isPresented: $showEditor, onDismiss: { editingNote = nil }) { editorSheet }
+    }
+    
+    private var filterPicker: some View {
+        Picker("Filter", selection: $filter) {
+            Text("All").tag(NoteFilter.all)
+            Text("Star").tag(NoteFilter.starred)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+    
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "square.and.pencil").font(.system(size: 38)).foregroundStyle(.secondary)
+            Text("No Notes").font(.headline).foregroundStyle(.secondary)
+            Text("Tap + to create your first cue note.").font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppBackground.gradient)
+    }
+    
+    private var notesList: some View {
+        List {
+            ForEach(filtered) { note in
+                NoteRow(note: note)
+                    .contentShape(Rectangle())
+                    .onTapGesture { editingNote = note; showEditor = true }
+                    .swipeActions {
+                        Button(role: .destructive) { store.delete(id: note.id) } label: { Label("Delete", systemImage: "trash") }
+                        Button { store.toggleStar(id: note.id) } label: { Label(note.starred ? "Unstar" : "Star", systemImage: note.starred ? "star.slash" : "star") }.tint(.yellow)
                     }
-                    .accessibilityLabel("New Note")
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showSettings = true } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Settings")
-                }
             }
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
-            .sheet(isPresented: $showEditor, onDismiss: { editingNote = nil }) {
-                if let note = editingNote {
-                    NoteEditorView(note: note) { updated in
-                        store.upsert(updated)
-                    }
-                    .presentationDetents([.large])
-                    .background(AppBackground.gradient.ignoresSafeArea())
+            .listRowBackground(AppBackground.row)
+        }
+        .listStyle(.plain)
+        .background(AppBackground.gradient)
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) { Button { createAndEditNew() } label: { Image(systemName: "plus.circle.fill") }.accessibilityLabel("New Note") }
+        ToolbarItem(placement: .topBarLeading) { Button { showSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings") }
+    }
+    
+    @ViewBuilder
+    private var editorSheet: some View {
+        if let note = editingNote {
+            NoteEditorView(note: note) { updated in store.upsert(updated) }
+                .presentationDetents([.large])
+                .background(AppBackground.gradient.ignoresSafeArea())
+        }
+    }
+
+    // MARK: - Row View
+    private struct NoteRow: View {
+        let note: Note
+        var body: some View {
+            HStack(alignment: .top, spacing: 8) {
+                if note.starred {
+                    Image(systemName: "star.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.yellow)
+                        .accessibilityLabel("Starred")
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(note.title.isEmpty ? "(Untitled)" : note.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(note.body.trimmed())
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Text(note.updatedAt, style: .relative)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
     }
