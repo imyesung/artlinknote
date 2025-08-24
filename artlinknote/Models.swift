@@ -182,21 +182,50 @@ extension NotesStore {
         }
     }
     private func extractBeats(from body: String) -> [String] {
-        let raw = body.replacingOccurrences(of: "\r", with: "")
-        // First: normalize blank line blocks to a sentinel
-    let blankNormalized = raw.replacingOccurrences(of: "\\n\\s*\\n+", with: "␞", options: .regularExpression)
-        // Second: replace explicit separators (—, ###, ***) with sentinel
-    let sepNormalized = blankNormalized.replacingOccurrences(of: "(?:(?:—){2,}|##+|\\*\\*\\*)", with: "␞", options: .regularExpression)
-        let parts = sepNormalized.components(separatedBy: "␞")
+        // Fast beat extraction without regex
+        let lines = body.replacingOccurrences(of: "\r", with: "")
+            .components(separatedBy: .newlines)
             .map { $0.trimmed() }
-            .filter { !$0.isEmpty }
-        if parts.count > 25 { return Array(parts.prefix(25)) }
-        if parts.count < 2 { return [] }
-        return parts
+        
+        var beats: [String] = []
+        var currentBeat = ""
+        
+        for line in lines {
+            if line.isEmpty {
+                // End of beat on blank line
+                if !currentBeat.isEmpty {
+                    beats.append(currentBeat)
+                    currentBeat = ""
+                }
+            } else if line.hasPrefix("---") || line.hasPrefix("###") || line.hasPrefix("***") {
+                // Explicit separator
+                if !currentBeat.isEmpty {
+                    beats.append(currentBeat)
+                    currentBeat = ""
+                }
+            } else {
+                // Add to current beat
+                if currentBeat.isEmpty {
+                    currentBeat = line
+                } else {
+                    currentBeat += " " + line
+                }
+            }
+        }
+        
+        // Don't forget the last beat
+        if !currentBeat.isEmpty {
+            beats.append(currentBeat)
+        }
+        
+        return beats.count > 25 ? Array(beats.prefix(25)) : (beats.count < 2 ? [] : beats)
     }
     private func splitSentences(_ text: String) -> [String] {
-    let replaced = text.replacingOccurrences(of: "[.!?]\\\\s+", with: "␞", options: .regularExpression)
-        return replaced.components(separatedBy: "␞").map { $0.trimmed() }.filter { !$0.isEmpty }
+        // Simple sentence split without regex for performance
+        let sentences = text.components(separatedBy: CharacterSet(charactersIn: ".!?"))
+            .map { $0.trimmed() }
+            .filter { !$0.isEmpty && $0.count > 3 }
+        return sentences
     }
     private func topKeywords(from body: String, max: Int) -> [String] {
         let tokens = body.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
