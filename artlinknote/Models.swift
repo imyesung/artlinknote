@@ -3,6 +3,9 @@
 
 import Foundation
 import Combine
+#if canImport(Security)
+import Security
+#endif
 
 struct Note: Identifiable, Codable, Hashable {
     var id: UUID
@@ -53,6 +56,82 @@ extension NotesStore {
     static func makeData(from notes: [Note]) throws -> Data { do { return try encoder.encode(notes) } catch { throw PersistenceError.encodingFailed } }
     static func parseNotes(from data: Data) throws -> [Note] { do { return try decoder.decode([Note].self, from: data) } catch { throw PersistenceError.decodingFailed } }
     static func atomicWrite(data: Data, to url: URL) async throws { do { try data.write(to: url, options: .atomic) } catch { throw PersistenceError.writeFailed } }
+}
+
+// MARK: - Keychain (API Key)
+enum KeychainError: Error {
+    case itemNotFound
+    case unexpectedData
+    case unhandled(OSStatus)
+}
+
+struct KeychainHelper {
+    private static let service = "ArtlinkAI"
+    private static let account = "OPENAI_API_KEY"
+
+    @discardableResult
+    static func save(apiKey: String) throws {
+        let data = Data(apiKey.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data
+        ]
+        #if canImport(Security)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let findQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account
+            ]
+            let attrs: [String: Any] = [kSecValueData as String: data]
+            let upd = SecItemUpdate(findQuery as CFDictionary, attrs as CFDictionary)
+            guard upd == errSecSuccess else { throw KeychainError.unhandled(upd) }
+            return
+        }
+        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+        #else
+        // Fallback (non-Apple platform): No-op
+        #endif
+    }
+
+    static func loadAPIKey() throws -> String? {
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: kCFBooleanTrue as Any,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+        guard let data = item as? Data, let str = String(data: data, encoding: .utf8) else { throw KeychainError.unexpectedData }
+        return str
+        #else
+        return nil
+        #endif
+    }
+
+    @discardableResult
+    static func deleteAPIKey() throws {
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecItemNotFound { return }
+        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+        #else
+        // No-op
+        #endif
+    }
 }
 
 // TODO(next atomic step):
