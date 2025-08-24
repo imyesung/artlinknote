@@ -7,7 +7,7 @@ import SwiftUI
 
 struct NoteEditorView: View {
     @State private var draft: Note
-    @State private var zoomLevel: NotesStore.SummaryLevel = .full
+    @State private var zoomLevel: NotesStore.SummaryLevel = .keywords
     @State private var showBeats: Bool = false
     let onCommit: (Note) -> Void
     @EnvironmentObject private var store: NotesStore
@@ -24,6 +24,7 @@ struct NoteEditorView: View {
     @State private var showTagsResult: Bool = false
     
     private let aiService = OpenAIService()
+    
     
     init(note: Note, onCommit: @escaping (Note) -> Void) {
         _draft = State(initialValue: note)
@@ -129,54 +130,94 @@ struct NoteEditorView: View {
             }
             .padding(.horizontal)
             
-            // Zoom Summary Segment
-            Picker("Level", selection: $zoomLevel) {
-                Text("Line").tag(NotesStore.SummaryLevel.line)
-                Text("Key").tag(NotesStore.SummaryLevel.key)
-                Text("Brief").tag(NotesStore.SummaryLevel.brief)
-                Text("Full").tag(NotesStore.SummaryLevel.full)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .onChange(of: zoomLevel) { _ in /* trigger view refresh */ }
-            Group {
-                if zoomLevel == .full {
-                    ZStack(alignment: .topLeading) {
-                        if draft.body.isEmpty {
-                            Text("Write your note…")
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.top, 10)
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
-                        }
-                        TextEditor(text: $draft.body)
-                            .font(.system(.body, design: .serif))
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            // Progressive Zoom Control (Segment Style)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: zoomLevel.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.blue)
+                        Text(zoomLevel.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.primary)
                     }
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Hardcoded test to see if this section is even shown
-                            Text("🔍 ZOOM MODE: \(zoomLevelName)")
-                                .font(.caption)
-                                .foregroundStyle(.blue)
-                            
-                            // Test local summary generation
-                            let text = testSummary()
-                            Text(text)
-                                .font(.system(.body, design: .serif))
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    Spacer()
+                    
+                    Text("Level \(zoomLevel.rawValue)/4")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                // Custom Segment Control
+                HStack(spacing: 0) {
+                    ForEach(NotesStore.SummaryLevel.allCases, id: \.rawValue) { level in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                zoomLevel = level
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                Image(systemName: level.icon)
+                                    .font(.system(size: 12, weight: .medium))
+                                Text(level.displayName)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(level == zoomLevel ? .white : .primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(level == zoomLevel ? .blue : .clear)
+                            )
                         }
-                        .padding(12)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .padding(.horizontal, 4)
+                        .buttonStyle(.plain)
+                        
+                        if level.rawValue < NotesStore.SummaryLevel.allCases.count {
+                            Divider()
+                                .frame(height: 20)
+                                .opacity(level == zoomLevel || NotesStore.SummaryLevel(rawValue: level.rawValue + 1) == zoomLevel ? 0 : 0.3)
+                        }
+                    }
+                }
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+            }
+            .padding(.horizontal)
+            
+            // Progressive Content Stack
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        // Always show content up to current level
+                        ForEach(NotesStore.SummaryLevel.allCases.filter { $0.rawValue <= zoomLevel.rawValue }, id: \.rawValue) { level in
+                            ProgressiveLevelView(
+                                level: level,
+                                draft: $draft,
+                                store: store,
+                                isCurrentLevel: level == zoomLevel,
+                                onCommit: onCommit
+                            )
+                            .id("level-\(level.rawValue)")
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .onChange(of: zoomLevel) { newLevel in
+                    // Auto-scroll to current level when changed
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        scrollProxy.scrollTo("level-\(newLevel.rawValue)", anchor: .center)
                     }
                 }
             }
-            .padding(.horizontal)
             .frame(maxHeight: .infinity, alignment: .top)
 
             // Beats Section Toggle
@@ -257,40 +298,6 @@ struct NoteEditorView: View {
     
     private func toggleStar() { draft.starred.toggle(); draft.touch(); onCommit(draft) }
     
-    // MARK: - Test Helpers
-    private var zoomLevelName: String {
-        switch zoomLevel {
-        case .line: return "LINE"
-        case .key: return "KEY" 
-        case .brief: return "BRIEF"
-        case .full: return "FULL"
-        }
-    }
-    
-    private func testSummary() -> String {
-        let body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return "📝 No content to summarize" }
-        
-        switch zoomLevel {
-        case .line:
-            let firstLine = body.components(separatedBy: .newlines).first ?? ""
-            return "📏 FIRST LINE:\n\(firstLine.prefix(120))..."
-        case .key:
-            let words = body.lowercased()
-                .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { $0.count > 3 }
-                .prefix(5)
-            return "🔑 KEY WORDS:\n• " + words.joined(separator: "\n• ")
-        case .brief:
-            let sentences = body.components(separatedBy: CharacterSet(charactersIn: ".!?"))
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-                .prefix(3)
-            return "📋 BRIEF SUMMARY:\n" + sentences.joined(separator: ". ")
-        case .full:
-            return body // This shouldn't be called since Full shows TextEditor
-        }
-    }
     
     // MARK: - AI Methods
     private func suggestTitle() async {
@@ -435,6 +442,110 @@ struct NoteEditorView: View {
         draft.touch()
         onCommit(draft)
         pendingTags = []
+    }
+}
+
+// MARK: - Progressive Level View Component
+struct ProgressiveLevelView: View {
+    let level: NotesStore.SummaryLevel
+    @Binding var draft: Note
+    let store: NotesStore
+    let isCurrentLevel: Bool
+    let onCommit: (Note) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Level Header
+            HStack(spacing: 8) {
+                Image(systemName: level.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(isCurrentLevel ? .blue : .secondary)
+                
+                Text(levelTitle)
+                    .font(.system(size: 14, weight: .semibold, design: .default))
+                    .foregroundStyle(isCurrentLevel ? .blue : .secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                
+                Spacer()
+                
+                if isCurrentLevel {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.blue)
+                        .rotationEffect(.degrees(180))
+                }
+            }
+            
+            // Level Content
+            Group {
+                if level == .full {
+                    // Full Editor
+                    ZStack(alignment: .topLeading) {
+                        if draft.body.isEmpty {
+                            Text("Write your note…")
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 12)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: Binding(
+                            get: { draft.body },
+                            set: { newValue in 
+                                draft.body = newValue
+                                draft.touch()
+                                onCommit(draft)
+                            }
+                        ))
+                            .font(.system(.body, design: .serif))
+                            .scrollContentBackground(.hidden)
+                            .scrollDisabled(true)
+                            .frame(minHeight: 120)
+                            .padding(8)
+                    }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isCurrentLevel ? .blue.opacity(0.3) : .clear, lineWidth: 2)
+                    )
+                } else {
+                    // Summary Content
+                    let summaryText = store.summary(for: draft, level: level)
+                    
+                    if !summaryText.isEmpty {
+                        Text(summaryText)
+                            .font(.system(.body, design: .serif))
+                            .lineSpacing(2)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(isCurrentLevel ? .blue.opacity(0.3) : .clear, lineWidth: 2)
+                            )
+                    } else {
+                        Text("No content available")
+                            .font(.system(.body, design: .serif))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    private var levelTitle: String {
+        switch level {
+        case .keywords: return "핵심 키워드"
+        case .line: return "첫 문장"
+        case .brief: return "요약"
+        case .full: return "전체 편집"
+        }
     }
 }
 

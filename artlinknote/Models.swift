@@ -138,20 +138,40 @@ struct KeychainHelper {
 // TODO(next atomic step):
 // MARK: - Tier A Heuristics (Summaries + Beats)
 extension NotesStore {
-    enum SummaryLevel: Int, CaseIterable { case line = 1, key = 2, brief = 3, full = 4 }
+    enum SummaryLevel: Int, CaseIterable { 
+        case keywords = 1
+        case line = 2  
+        case brief = 3
+        case full = 4
+        
+        var displayName: String {
+            switch self {
+            case .keywords: return "Keywords"
+            case .line: return "Line" 
+            case .brief: return "Brief"
+            case .full: return "Full"
+            }
+        }
+        
+        var icon: String {
+            switch self {
+            case .keywords: return "key.horizontal"
+            case .line: return "text.line.first.and.arrowtriangle.forward"
+            case .brief: return "doc.plaintext"
+            case .full: return "square.and.pencil"
+            }
+        }
+    }
     func summary(for note: Note, level: SummaryLevel) -> String {
         if level == .full { return note.body }
-        if let cached = note.levelSummaries?[level.rawValue] { return cached }
-        var generated = makeSummary(note.body, level: level)
-        if generated.isEmpty { generated = note.body }
-        cacheSummary(generated, for: note.id, level: level)
-        return generated
+        
+        // Generate directly without caching to avoid view update issues
+        let generated = makeSummary(note.body, level: level)
+        return generated.isEmpty ? note.body : generated
     }
     func beats(for note: Note) -> [String] {
-        if let c = note.beatsCache, !c.isEmpty { return c }
-        let arr = extractBeats(from: note.body)
-        cacheBeats(arr, for: note.id)
-        return arr
+        // Generate directly without caching to avoid view update issues
+        return extractBeats(from: note.body)
     }
     private func cacheSummary(_ text: String, for id: UUID, level: SummaryLevel) {
         guard let i = notes.firstIndex(where: { $0.id == id }) else { return }
@@ -169,12 +189,12 @@ extension NotesStore {
         let sentences = splitSentences(body).filter { $0.count > 15 }
         guard !sentences.isEmpty else { return body }
         switch level {
+        case .keywords:
+            let kws = topKeywords(from: body, max: 5)
+            return kws.map { "• \($0)" }.joined(separator: "\n")
         case .line:
             guard let first = sentences.first else { return "No sentences found" }
             return first.prefix(120).trimmingCharacters(in: .whitespaces) + (first.count > 120 ? "…" : "")
-        case .key:
-            let kws = topKeywords(from: body, max: 5)
-            return kws.map { "• \($0)" }.joined(separator: "\n")
         case .brief:
             let take = sentences.prefix( min(3, sentences.count) )
             return take.joined(separator: " ")
