@@ -9,21 +9,23 @@ struct ContentView: View {
     @EnvironmentObject private var store: NotesStore
     @State private var filter: NoteFilter = .all
     @State private var searchText: String = ""
-    @State private var editingNote: Note? = nil
-    @State private var showEditor: Bool = false
     @State private var showSettings: Bool = false // placeholder for future settings sheet
+    @State private var path: [Note] = [] // navigation stack path for push editor
     
     private var filtered: [Note] {
         store.filtered(query: searchText, filter: filter)
     }
     
-    var body: some View {
-        NavigationStack { mainContent }
-    }
+    var body: some View { NavigationStack(path: $path) { mainContent
+            .navigationDestination(for: Note.self) { note in
+                NoteEditorView(note: note) { updated in store.upsert(updated) }
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+        } }
     
     @ViewBuilder
     private var mainContent: some View {
-        VStack(spacing: 0) {
+    VStack(spacing: 0) {
             filterPicker
             Group {
                 if filtered.isEmpty { emptyState } else { notesList }
@@ -32,7 +34,6 @@ struct ContentView: View {
     .navigationTitle("Artlink")
         .toolbar { toolbarContent }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
-        .sheet(isPresented: $showEditor, onDismiss: { editingNote = nil }) { editorSheet }
     }
     
     private var filterPicker: some View {
@@ -58,13 +59,13 @@ struct ContentView: View {
     private var notesList: some View {
         List {
             ForEach(filtered) { note in
-                NoteRow(note: note)
-                    .contentShape(Rectangle())
-                    .onTapGesture { editingNote = note; showEditor = true }
-                    .swipeActions {
-                        Button(role: .destructive) { store.delete(id: note.id) } label: { Label("Delete", systemImage: "trash") }
-                        Button { store.toggleStar(id: note.id) } label: { Label(note.starred ? "Unstar" : "Star", systemImage: note.starred ? "star.slash" : "star") }.tint(.yellow)
-                    }
+                NavigationLink(value: note) {
+                    NoteRow(note: note)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) { store.delete(id: note.id) } label: { Label("Delete", systemImage: "trash") }
+                    Button { store.toggleStar(id: note.id) } label: { Label(note.starred ? "Unstar" : "Star", systemImage: note.starred ? "star.slash" : "star") }.tint(.yellow)
+                }
             }
             .listRowBackground(AppBackground.row)
         }
@@ -78,54 +79,62 @@ struct ContentView: View {
         ToolbarItem(placement: .topBarLeading) { Button { showSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings") }
     }
     
-    @ViewBuilder
-    private var editorSheet: some View {
-        if let note = editingNote {
-            NoteEditorView(note: note) { updated in store.upsert(updated) }
-                .presentationDetents([.large])
-                .background(AppBackground.gradient.ignoresSafeArea())
-        }
-    }
+    // Removed sheet; using navigationDestination now.
 
     // MARK: - Row View
     private struct NoteRow: View {
         let note: Note
         var body: some View {
-            HStack(alignment: .top, spacing: 8) {
-                if note.starred {
-                    Image(systemName: "star.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.yellow)
-                        .accessibilityLabel("Starred")
+            ZStack(alignment: .topTrailing) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(note.title.isEmpty ? "(Untitled)" : note.title)
+                            .font(.system(.headline, design: .serif))
+                            .lineLimit(1)
+                        Text(note.body.trimmed())
+                            .font(.system(.subheadline, design: .serif))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(note.updatedAt, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if note.starred { StarBadge() }
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(note.title.isEmpty ? "(Untitled)" : note.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text(note.body.trimmed())
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                Text(note.updatedAt, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
+            }
+            .contentShape(Rectangle())
+        }
+        private struct StarBadge: View {
+            var body: some View {
+                Image(systemName: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(.yellow)
+                    .padding(4)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityLabel("Starred")
             }
         }
     }
     
     private func createAndEditNew() {
         let new = store.createNew()
-        editingNote = new
-        showEditor = true
+        path.append(new) // push into editor
     }
 }
 
 // MARK: - Background Styling (monotone subtle)
 enum AppBackground {
-    static let gradient = LinearGradient(colors: [Color(.systemGray6), Color(.systemGray5)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let row = Color(.secondarySystemBackground)
+    // Subtle neutral drift: slightly cooler mid-tone without introducing chroma.
+    static let gradient = LinearGradient(
+        colors: [Color(.systemGray6), Color(.systemGray5), Color(.systemGray6)],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+    static let row = Color(.systemGray6).opacity(0.55)
 }
 
 #Preview {
