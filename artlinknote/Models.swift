@@ -13,6 +13,9 @@ struct Note: Identifiable, Codable, Hashable {
     var body: String
     var starred: Bool
     var updatedAt: Date
+    // Tier A extensions
+    var levelSummaries: [Int: String]? // zoom summaries cache (1=line,2=bullets,3=brief,4=full)
+    var beatsCache: [String]? // extracted beat segments (order preserved)
     var isEmpty: Bool { title.trimmed().isEmpty && body.trimmed().isEmpty }
     mutating func touch() { updatedAt = Date() }
     static func blank() -> Note { Note(id: UUID(), title: "", body: "", starred: false, updatedAt: Date()) }
@@ -69,7 +72,6 @@ struct KeychainHelper {
     private static let service = "ArtlinkAI"
     private static let account = "OPENAI_API_KEY"
 
-    @discardableResult
     static func save(apiKey: String) throws {
         let data = Data(apiKey.utf8)
         let query: [String: Any] = [
@@ -117,7 +119,6 @@ struct KeychainHelper {
         #endif
     }
 
-    @discardableResult
     static func deleteAPIKey() throws {
         #if canImport(Security)
         let query: [String: Any] = [
@@ -135,7 +136,78 @@ struct KeychainHelper {
 }
 
 // TODO(next atomic step):
-// - Define KeychainError (cases: itemNotFound, unexpectedData, unhandled(OSStatus))
-// - Implement KeychainHelper with static methods: save(apiKey:), loadAPIKey(), deleteAPIKey()
-//   using kSecClassGenericPassword, service = "ArtlinkAI", account = "OPENAI_API_KEY".
-// - Keep within this file to honor 5-file limit.
+// MARK: - Tier A Heuristics (Summaries + Beats)
+extension NotesStore {
+    enum SummaryLevel: Int, CaseIterable { case line = 1, key = 2, brief = 3, full = 4 }
+    func summary(for note: Note, level: SummaryLevel) -> String {
+        if level == .full { return note.body }
+        if let cached = note.levelSummaries?[level.rawValue] { return cached }
+        var generated = makeSummary(note.body, level: level)
+        if generated.isEmpty { generated = note.body }
+        cacheSummary(generated, for: note.id, level: level)
+        return generated
+    }
+    func beats(for note: Note) -> [String] {
+        if let c = note.beatsCache, !c.isEmpty { return c }
+        let arr = extractBeats(from: note.body)
+        cacheBeats(arr, for: note.id)
+        return arr
+    }
+    private func cacheSummary(_ text: String, for id: UUID, level: SummaryLevel) {
+        guard let i = notes.firstIndex(where: { $0.id == id }) else { return }
+        var map = notes[i].levelSummaries ?? [:]
+        map[level.rawValue] = text
+        notes[i].levelSummaries = map
+        scheduleSave()
+    }
+    private func cacheBeats(_ beats: [String], for id: UUID) {
+        guard let i = notes.firstIndex(where: { $0.id == id }) else { return }
+        notes[i].beatsCache = beats
+        scheduleSave()
+    }
+    private func makeSummary(_ body: String, level: SummaryLevel) -> String {
+        let sentences = splitSentences(body).filter { $0.count > 15 }
+        guard !sentences.isEmpty else { return body }
+        switch level {
+        case .line:
+            return sentences.first!.prefix(120).trimmingCharacters(in: .whitespaces) + (sentences.first!.count > 120 ? "…" : "")
+        case .key:
+            let kws = topKeywords(from: body, max: 5)
+            return kws.map { "• \($0)" }.joined(separator: "\n")
+        case .brief:
+            let take = sentences.prefix( min(3, sentences.count) )
+            return take.joined(separator: " ")
+        case .full:
+            return body
+        }
+    }
+    private func extractBeats(from body: String) -> [String] {
+        let raw = body.replacingOccurrences(of: "\r", with: "")
+        // First: normalize blank line blocks to a sentinel
+    let blankNormalized = raw.replacingOccurrences(of: "\\n\\s*\\n+", with: "␞", options: .regularExpression)
+        // Second: replace explicit separators (—, ###, ***) with sentinel
+    let sepNormalized = blankNormalized.replacingOccurrences(of: "(?:(?:—){2,}|##+|\\*\\*\\*)", with: "␞", options: .regularExpression)
+        let parts = sepNormalized.components(separatedBy: "␞")
+            .map { $0.trimmed() }
+            .filter { !$0.isEmpty }
+        if parts.count > 25 { return Array(parts.prefix(25)) }
+        if parts.count < 2 { return [] }
+        return parts
+    }
+    private func splitSentences(_ text: String) -> [String] {
+    let replaced = text.replacingOccurrences(of: "[.!?]\\\\s+", with: "␞", options: .regularExpression)
+        return replaced.components(separatedBy: "␞").map { $0.trimmed() }.filter { !$0.isEmpty }
+    }
+    private func topKeywords(from body: String, max: Int) -> [String] {
+        let tokens = body.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count > 3 && !$0.isEmpty }
+        var freq: [String:Int] = [:]
+        for t in tokens { freq[t, default: 0] += 1 }
+        let stop: Set<String> = ["this","that","with","from","their","they","then","have","will","because","while","character"]
+        return freq.filter { !stop.contains($0.key) }
+            .sorted { $0.value > $1.value }
+            .prefix(max)
+            .map { $0.key }
+    }
+}
+
