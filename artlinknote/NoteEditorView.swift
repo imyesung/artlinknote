@@ -7,7 +7,7 @@ import SwiftUI
 
 struct NoteEditorView: View {
     @State private var draft: Note
-    @State private var zoomLevel: NotesStore.SummaryLevel = .keywords
+    @State private var zoomLevel: NotesStore.SummaryLevel? = nil
     @State private var showBeats: Bool = false
     let onCommit: (Note) -> Void
     @EnvironmentObject private var store: NotesStore
@@ -130,20 +130,60 @@ struct NoteEditorView: View {
             }
             .padding(.horizontal)
             
-            // Progressive Zoom Control (Segment Style)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 6) {
-                    Image(systemName: zoomLevel.icon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.blue)
-                    Text(zoomLevel.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
+            // Progressive Zoom Control (Segment Style) - only show when active
+            if let currentLevel = zoomLevel {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 6) {
+                        Image(systemName: currentLevel.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.blue)
+                        Text(currentLevel.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.primary)
+                    }
+                    
+                    // Custom Segment Control
+                    HStack(spacing: 0) {
+                        ForEach(NotesStore.SummaryLevel.allCases, id: \.rawValue) { level in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    if level == currentLevel {
+                                        zoomLevel = nil // Toggle off if same level
+                                    } else {
+                                        zoomLevel = level
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: level.icon)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(level == currentLevel ? .white : .primary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(level == currentLevel ? .blue : .clear)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            
+                            if level.rawValue < NotesStore.SummaryLevel.allCases.count {
+                                Divider()
+                                    .frame(height: 20)
+                                    .opacity(level == currentLevel || NotesStore.SummaryLevel(rawValue: level.rawValue + 1) == currentLevel ? 0 : 0.3)
+                            }
+                        }
+                    }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                    )
                 }
-                
-                // Custom Segment Control
-                HStack(spacing: 0) {
+                .padding(.horizontal)
+            } else {
+                // Show zoom level buttons when in normal mode
+                HStack(spacing: 8) {
                     ForEach(NotesStore.SummaryLevel.allCases, id: \.rawValue) { level in
                         Button {
                             withAnimation(.easeInOut(duration: 0.3)) {
@@ -152,61 +192,78 @@ struct NoteEditorView: View {
                         } label: {
                             Image(systemName: level.icon)
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(level == zoomLevel ? .white : .primary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(level == zoomLevel ? .blue : .clear)
-                            )
+                                .foregroundStyle(.primary)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: Circle())
                         }
                         .buttonStyle(.plain)
-                        
-                        if level.rawValue < NotesStore.SummaryLevel.allCases.count {
-                            Divider()
-                                .frame(height: 20)
-                                .opacity(level == zoomLevel || NotesStore.SummaryLevel(rawValue: level.rawValue + 1) == zoomLevel ? 0 : 0.3)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal)
+            }
+            
+            // Content Area - Either Normal Editor or Progressive View
+            if let currentLevel = zoomLevel {
+                // Progressive Content Stack
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            // Always show content up to current level
+                            ForEach(NotesStore.SummaryLevel.allCases.filter { $0.rawValue <= currentLevel.rawValue }, id: \.rawValue) { level in
+                                ProgressiveLevelView(
+                                    level: level,
+                                    draft: $draft,
+                                    store: store,
+                                    isCurrentLevel: level == currentLevel,
+                                    onCommit: onCommit
+                                )
+                                .id("level-\(level.rawValue)")
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .top).combined(with: .opacity),
+                                    removal: .move(edge: .top).combined(with: .opacity)
+                                ))
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .onChange(of: zoomLevel) { newLevel in
+                        // Auto-scroll to current level when changed
+                        if let level = newLevel {
+                            withAnimation(.easeInOut(duration: 0.4)) {
+                                scrollProxy.scrollTo("level-\(level.rawValue)", anchor: .center)
+                            }
                         }
                     }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                // Normal TextEditor Mode
+                ZStack(alignment: .topLeading) {
+                    if draft.body.isEmpty {
+                        Text("Write your note…")
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 12)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: Binding(
+                        get: { draft.body },
+                        set: { newValue in 
+                            draft.body = newValue
+                            draft.touch()
+                            onCommit(draft)
+                        }
+                    ))
+                        .font(.system(.body, design: .serif))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 200)
+                        .padding(8)
                 }
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                )
+                .padding(.horizontal)
+                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal)
-            
-            // Progressive Content Stack
-            ScrollViewReader { scrollProxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        // Always show content up to current level
-                        ForEach(NotesStore.SummaryLevel.allCases.filter { $0.rawValue <= zoomLevel.rawValue }, id: \.rawValue) { level in
-                            ProgressiveLevelView(
-                                level: level,
-                                draft: $draft,
-                                store: store,
-                                isCurrentLevel: level == zoomLevel,
-                                onCommit: onCommit
-                            )
-                            .id("level-\(level.rawValue)")
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .top).combined(with: .opacity),
-                                removal: .move(edge: .top).combined(with: .opacity)
-                            ))
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .onChange(of: zoomLevel) { newLevel in
-                    // Auto-scroll to current level when changed
-                    withAnimation(.easeInOut(duration: 0.4)) {
-                        scrollProxy.scrollTo("level-\(newLevel.rawValue)", anchor: .center)
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
 
             // Beats Section Toggle
             if zoomLevel == .full {
@@ -529,10 +586,10 @@ struct ProgressiveLevelView: View {
     
     private var levelTitle: String {
         switch level {
-        case .keywords: return "핵심 키워드"
-        case .line: return "첫 문장"
-        case .brief: return "요약"
-        case .full: return "전체 편집"
+        case .keywords: return "Keywords"
+        case .line: return "Line"
+        case .brief: return "Brief"
+        case .full: return "Full"
         }
     }
 }
