@@ -69,7 +69,12 @@ final class OpenAIService: AIService {
     
     // MARK: - Public AI Methods
     func suggestTitle(for text: String) async throws -> String {
-        let systemPrompt = """
+        let isKorean = detectKorean(in: text)
+        let systemPrompt = isKorean ? """
+        당신은 배우와 크리에이티브를 위한 제목 생성기입니다. 주어진 노트 내용에 대해 간결하고 기억에 남는 제목(48자 이내)을 생성하세요.
+        주요 테마, 감정, 또는 핵심 행동에 집중하세요. 일반적인 제목은 피하세요.
+        반드시 유효한 JSON만 반환하세요: {"title": "제목을 여기에"}
+        """ : """
         You are a title generator for actors and creatives. Generate a concise, memorable title (≤48 characters) for the given note content. 
         Focus on the main theme, emotion, or key action. Avoid generic titles. 
         Return only valid JSON: {"title": "Your Title Here"}
@@ -90,7 +95,13 @@ final class OpenAIService: AIService {
     }
     
     func rehearsalSummary(for text: String) async throws -> RehearsalSummary {
-        let systemPrompt = """
+        let isKorean = detectKorean(in: text)
+        let systemPrompt = isKorean ? """
+        당신은 배우를 위한 리허설 코치입니다. 주어진 씬/모노로그에 대해 로그라인과 1-5개의 핵심 비트를 만드세요.
+        로그라인: 핵심 갈등이나 여정을 한 문장으로 요약(120자 이내).
+        비트: 핵심 감정/행동 변화, 각각 80자 이내.
+        반드시 유효한 JSON만 반환하세요: {"logline": "...", "beats": ["비트1", "비트2", ...]}
+        """ : """
         You are a rehearsal coach for actors. Create a logline and 1-5 key beats for the given scene/monologue.
         Logline: One sentence capturing the core conflict or journey (≤120 chars).
         Beats: Key emotional/action shifts, each ≤80 chars.
@@ -121,7 +132,13 @@ final class OpenAIService: AIService {
     }
     
     func extractTags(for text: String) async throws -> [String] {
-        let systemPrompt = """
+        let isKorean = detectKorean(in: text)
+        let systemPrompt = isKorean ? """
+        당신은 크리에이티브 노트를 위한 태그 생성기입니다. 텍스트에서 1-5개의 관련 해시태그를 추출하세요.
+        태그는 소문자, 공백 없이, 테마, 감정, 기법, 또는 주제와 관련되어야 합니다.
+        예시: #모노로그 #갈등 #리허설 #캐릭터 #감정 #기법
+        반드시 유효한 JSON만 반환하세요: {"tags": ["#태그1", "#태그2", ...]}
+        """ : """
         You are a content tagger for creative notes. Extract 1-5 relevant hashtags from the text.
         Tags should be lowercase, no spaces, relevant to themes, emotions, techniques, or subjects.
         Examples: #monologue #conflict #rehearsal #character #emotion #technique
@@ -145,6 +162,12 @@ final class OpenAIService: AIService {
         }
         
         return cleanTags.isEmpty ? heuristicTags(from: text) : Array(cleanTags.prefix(5))
+    }
+    
+    // MARK: - Language Detection
+    private func detectKorean(in text: String) -> Bool {
+        let koreanCharacterSet = CharacterSet(charactersIn: "\u{AC00}"..."\u{D7A3}") // 한글 유니코드 범위
+        return text.rangeOfCharacter(from: koreanCharacterSet) != nil
     }
     
     // MARK: - Core Request Method
@@ -248,12 +271,13 @@ final class OpenAIService: AIService {
 // MARK: - Heuristic Fallbacks
 extension OpenAIService {
     private func heuristicTitle(from text: String) -> String {
+        let isKorean = detectKorean(in: text)
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
         
         if words.isEmpty {
-            return "Untitled Note"
+            return isKorean ? "제목 없음" : "Untitled Note"
         }
         
         // Take first meaningful phrase (up to 6 words, ≤48 chars)
@@ -264,36 +288,58 @@ extension OpenAIService {
             title = candidate
         }
         
-        return title.isEmpty ? "Untitled Note" : title
+        return title.isEmpty ? (isKorean ? "제목 없음" : "Untitled Note") : title
     }
     
     private func heuristicSummary(from text: String) -> RehearsalSummary {
+        let isKorean = detectKorean(in: text)
         let lines = text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         
-        let logline = lines.first?.prefix(120).description ?? "Practice scene or monologue"
+        let defaultLogline = isKorean ? "연습용 씬 또는 모노로그" : "Practice scene or monologue"
+        let logline = lines.first?.prefix(120).description ?? defaultLogline
         let beats = lines.prefix(3).map { String($0.prefix(80)) }
+        
+        let defaultBeats = isKorean ? ["장면 시작", "긴장감 조성", "결말 도출"] : ["Begin scene", "Build tension", "Find resolution"]
         
         return RehearsalSummary(
             logline: String(logline),
-            beats: beats.isEmpty ? ["Begin scene", "Build tension", "Find resolution"] : beats
+            beats: beats.isEmpty ? defaultBeats : beats
         )
     }
     
     private func heuristicTags(from text: String) -> [String] {
+        let isKorean = detectKorean(in: text)
         let lowercased = text.lowercased()
-        let commonTags = [
-            ("#rehearsal", ["rehearsal", "practice", "scene"]),
-            ("#monologue", ["monologue", "solo", "speech"]),
-            ("#character", ["character", "role", "person"]),
-            ("#emotion", ["feel", "emotion", "mood", "angry", "sad", "happy"]),
-            ("#technique", ["technique", "method", "approach", "skill"])
-        ]
         
-        return commonTags.compactMap { (tag, keywords) in
-            keywords.contains { lowercased.contains($0) } ? tag : nil
-        }.prefix(3) + ["#note"]
+        if isKorean {
+            let koreanTags = [
+                ("#리허설", ["리허설", "연습", "씬", "장면"]),
+                ("#모노로그", ["모노로그", "독백", "연설"]),
+                ("#캐릭터", ["캐릭터", "인물", "역할"]),
+                ("#감정", ["감정", "기분", "화남", "슬픔", "기쁨"]),
+                ("#기법", ["기법", "방법", "접근", "스킬"])
+            ]
+            
+            let matched = koreanTags.compactMap { (tag, keywords) in
+                keywords.contains { lowercased.contains($0) } ? tag : nil
+            }
+            return Array(matched.prefix(3)) + (matched.isEmpty ? ["#노트"] : [])
+        } else {
+            let englishTags = [
+                ("#rehearsal", ["rehearsal", "practice", "scene"]),
+                ("#monologue", ["monologue", "solo", "speech"]),
+                ("#character", ["character", "role", "person"]),
+                ("#emotion", ["feel", "emotion", "mood", "angry", "sad", "happy"]),
+                ("#technique", ["technique", "method", "approach", "skill"])
+            ]
+            
+            let matched = englishTags.compactMap { (tag, keywords) in
+                keywords.contains { lowercased.contains($0) } ? tag : nil
+            }
+            return Array(matched.prefix(3)) + (matched.isEmpty ? ["#note"] : [])
+        }
     }
 }
 
