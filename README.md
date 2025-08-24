@@ -1,9 +1,9 @@
-# Artlink — 5-hour shipping contract for GitHub Copilot
+# Artlink
 
-### 제품 목표 (Product Goal)
-배우와 크리에이티브를 위한 초직관 iOS 메모 앱. 학습 곡선 제로. 5시간 안에 출시(Ship). App Store 유료 선불(서버 無). AI는 사용자가 입력한 OpenAI 호환 API Key로만 동작하며 모든 데이터는 로컬에서만 흐름. (앱은 자체 서버 전송/수집 없음)
+### Product Goal
+배우와 크리에이티브를 위한 직관적 iOS 메모 앱. 학습 곡선 제로. App Store 유료 선불(서버 無). AI는 사용자가 입력한 OpenAI 호환 API Key로만 동작하며 모든 데이터는 로컬에서만 흐름. (앱은 자체 서버 전송/수집 없음)
 
-### 하드 제약 (Hard Constraints)
+### Hard Constraints
 - 언어: Swift 5.9+ / SwiftUI, iOS 17 이상.
 - 파일: Swift 소스 총 5개 이하(초과 금지). 서드파티 패키지 불가. 스토리보드 불가.
 - 영속성: App Sandbox Documents 내 JSON 파일 1개. 변경 시 자동 저장(Autosave). Core Data 사용 금지.
@@ -16,7 +16,7 @@
 - 다국어: 기본 영어. Placeholder/문구에 한국어 혼용 허용.
 - 수익화: 유료(1회 구매). Day-1에 IAP 없음.
 
-### 수용 기준 (Acceptance Criteria)
+### Acceptance Criteria
 1) 런치 시 [All | Star] 세그먼트로 구분된 리스트. 검색 가능(.searchable). 각 아이템은 제목, 2줄 본문 요약, 상대적 날짜(relative date) 표시.
 2) 탭하면 에디터 시트: 제목 필드 + 큰 본문(TextEditor). "Cue mode" 토글 시 폰트 확대.
 3) 스와이프 액션: 즐겨찾기/해제(Star/Unstar), 삭제(Delete). 툴바: New, Settings.
@@ -38,7 +38,7 @@
 	- `NoteEditorView.swift` (에디터 + AI 버튼)
 8) 빌드 경고(Warning) 0. 네트워크/퍼시스턴스에 force unwrap 금지. 동시성은 async/await 사용.
 
-### 구현 추가 가치 (Progress Beyond Baseline)
+### Progress Beyond Baseline
 - Keychain 헬퍼 (API Key 저장/조회/삭제)
 - Navigation push 기반 에디터 (sheet 제거)
 - Zoom Summaries (Line / Key / Brief / Full) 휴리스틱 캐시
@@ -46,10 +46,10 @@
 - Monochrome 아티스트 톤 UI + Star 배지 오버레이
 - Debounced autosave (300ms) + atomic write
 
-### 아키텍처
+### Architecture
 에디터는 NotesStore에 변경을 전달하며, NotesStore는 JSON 저장/로드 담당. AIService는 에디터로부터 호출, Store에는 간접적으로(결과 적용 후) 반영.
 
-### 데이터 모델 (Data Model)
+### Data Model
 Swift 구조체는 원문 코드와 동일. `isEmpty`는 제목+본문 트림 후 비었는지. `touch()`는 updatedAt 업데이트.
 Persistence 상세:
 - 파일 경로: Documents/notes.json
@@ -57,7 +57,7 @@ Persistence 상세:
 - 쓰기: 스냅샷 복사 후 `data.write(.atomic)` (Task.detached)
 - 로드 실패 시 샘플 2개 노트 시드(seed)
 
-### AI 인터페이스 (예정 구현)
+### AI 인터페이스 (구현 예정)
 `AIService` (suggestTitle / rehearsalSummary / extractTags) + `RehearsalSummary`(logline, beats)
 OpenAI 요구사항:
 - Base URL: `/v1/responses`
@@ -71,13 +71,13 @@ OpenAI 요구사항:
 - RehearsalSummary: { "logline": "...", "beats": [ ...1~5개 각각 ≤80자 ] }
 - ExtractTags: { "tags": ["#tag", ...] } 최대 5개, 소문자, 공백 없음.
 
-### 시스템 프롬프트 (System Prompts)
+### System Prompts
 각 작업별 역할(role) 프롬프트를 요청 본문에 포함. 응답은 반드시 JSON만.
 
 ### UI 구현 디테일
 - 리스트: NavigationStack + 세그먼트(All/Star) + .searchable
 - 행(Row): 별표(채워진 아이콘) if starred, 제목 1줄, 본문 2줄, trailing 상대 시간
-- 스와이프: 즐겨찾기 토글(노란), 삭제(파괴적)
+- 스와이프: 즐겨찾기 토글(노란), 삭제
 - 에디터: 제목 TextField, Cue 모드 Toggle, 본문 TextEditor
 - AI 버튼: [Suggest Title] [Rehearsal Summary] [Tags]
 - 성공 후 적용 규칙:
