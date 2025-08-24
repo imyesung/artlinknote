@@ -54,3 +54,9 @@ extension NotesStore {
     static func parseNotes(from data: Data) throws -> [Note] { do { return try decoder.decode([Note].self, from: data) } catch { throw PersistenceError.decodingFailed } }
     static func atomicWrite(data: Data, to url: URL) async throws { do { try data.write(to: url, options: .atomic) } catch { throw PersistenceError.writeFailed } }
 }
+
+// TODO(next atomic step):
+// - Define KeychainError (cases: itemNotFound, unexpectedData, unhandled(OSStatus))
+// - Implement KeychainHelper with static methods: save(apiKey:), loadAPIKey(), deleteAPIKey()
+//   using kSecClassGenericPassword, service = "ArtlinkAI", account = "OPENAI_API_KEY".
+// - Keep within this file to honor 5-file limit.

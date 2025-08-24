@@ -29,7 +29,7 @@ struct ContentView: View {
                 if filtered.isEmpty { emptyState } else { notesList }
             }
         }
-        .navigationTitle("Actor Notes")
+    .navigationTitle("Artlink")
         .toolbar { toolbarContent }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .sheet(isPresented: $showEditor, onDismiss: { editingNote = nil }) { editorSheet }

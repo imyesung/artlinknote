@@ -31,7 +31,7 @@
 	- Model name TextField (기본값 `gpt-4o-mini` 수정 가능)
 	- 온디바이스 프라이버시 안내 텍스트.
 7) 파일 구성 ≤ 5 (정확한 파일명 고정):
-	- `ActorNotesApp.swift` (앱 엔트리)
+	- `ActorNotesApp.swift` (앱 엔트리, 구조체명 ArtlinkApp)
 	- `Models.swift` (Note, NotesStore, Keychain 헬퍼, 파일 IO)
 	- `AIService.swift` (AIService 프로토콜 + OpenAIService 구현 + 스키마)
 	- `ContentView.swift` (리스트/검색/별표/삭제/새로 만들기/설정)

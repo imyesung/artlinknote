@@ -4,7 +4,7 @@
 import SwiftUI
 
 @main
-struct ActorNotesApp: App {
+struct ArtlinkApp: App {
     @StateObject private var store = NotesStore()
     
     var body: some Scene {

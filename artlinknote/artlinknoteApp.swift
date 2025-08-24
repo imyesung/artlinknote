@@ -8,7 +8,7 @@
 // Deprecated template entry point neutralized.
 // Original SwiftData-based app struct removed to avoid duplicate @main.
 // This file intentionally left minimal; kept only so Xcode project reference does not break.
-// Current entry point: ActorNotesApp in ActorNotesApp.swift
+// Current entry point: ArtlinkApp in ActorNotesApp.swift
 
 import SwiftUI
 
