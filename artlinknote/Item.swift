@@ -5,14 +5,9 @@
 //  Created by yesunglim on 2025-08-24.
 //
 
-import Foundation
-import SwiftData
+// Deprecated SwiftData model neutralized to remove dependency on SwiftData.
+// Keeping file stub to satisfy potential project references; safe to delete from project later.
 
-@Model
-final class Item {
-    var timestamp: Date
-    
-    init(timestamp: Date) {
-        self.timestamp = timestamp
-    }
-}
+import Foundation
+
+struct DeprecatedItemStub { let timestamp = Date() }

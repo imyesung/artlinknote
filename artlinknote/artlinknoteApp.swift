@@ -5,28 +5,14 @@
 //  Created by yesunglim on 2025-08-24.
 //
 
+// Deprecated template entry point neutralized.
+// Original SwiftData-based app struct removed to avoid duplicate @main.
+// This file intentionally left minimal; kept only so Xcode project reference does not break.
+// Current entry point: ActorNotesApp in ActorNotesApp.swift
+
 import SwiftUI
-import SwiftData
 
-@main
-struct artlinknoteApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-        .modelContainer(sharedModelContainer)
-    }
+// Placeholder (no @main here)
+struct DeprecatedTemplateAppStub: View {
+    var body: some View { EmptyView() }
 }
