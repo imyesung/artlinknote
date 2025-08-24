@@ -1,0 +1,37 @@
+# Xcode & Derived Data
+DerivedData/
+build/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager Artifacts
+.build/
+Package.resolved
+
+# User specific settings
+xcuserdata/
+
+# Logs
+*.log
+
+# Temporary / swap
+*.swp
+*.tmp
+
+# Secrets & Local Config
+Secrets*
+.env
+
+# Internal docs not to commit (per request)
+DEV_NOTES.md
+.github/instructions/
+
+# Keychain export or mock files (if any future)
+*.keychain
+*.keychain-db
+
+# Generated json/cache
+notes.json
+
+# macOS metadata
+.DS_Store
