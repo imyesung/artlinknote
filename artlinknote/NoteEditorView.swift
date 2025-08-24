@@ -132,22 +132,14 @@ struct NoteEditorView: View {
             
             // Progressive Zoom Control (Segment Style)
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    HStack(spacing: 6) {
-                        Image(systemName: zoomLevel.icon)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.blue)
-                        Text(zoomLevel.displayName)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.primary)
-                    }
-                    
-                    Spacer()
-                    
-                    Text("Level \(zoomLevel.rawValue)/4")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: zoomLevel.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.blue)
+                    Text(zoomLevel.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
                 }
                 
                 // Custom Segment Control
@@ -158,15 +150,11 @@ struct NoteEditorView: View {
                                 zoomLevel = level
                             }
                         } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: level.icon)
-                                    .font(.system(size: 12, weight: .medium))
-                                Text(level.displayName)
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(level == zoomLevel ? .white : .primary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            Image(systemName: level.icon)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(level == zoomLevel ? .white : .primary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(level == zoomLevel ? .blue : .clear)
