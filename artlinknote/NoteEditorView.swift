@@ -13,6 +13,19 @@ struct NoteEditorView: View {
     let onCommit: (Note) -> Void
     @EnvironmentObject private var store: NotesStore
     
+    // AI State Management
+    @State private var isProcessingAI: Bool = false
+    @State private var aiError: String = ""
+    @State private var showAIError: Bool = false
+    @State private var pendingTitle: String = ""
+    @State private var pendingSummary: RehearsalSummary? = nil
+    @State private var pendingTags: [String] = []
+    @State private var showTitleConfirm: Bool = false
+    @State private var showSummaryResult: Bool = false
+    @State private var showTagsResult: Bool = false
+    
+    private let aiService = OpenAIService()
+    
     init(note: Note, onCommit: @escaping (Note) -> Void) {
         _draft = State(initialValue: note)
         self.onCommit = onCommit
@@ -124,23 +137,81 @@ struct NoteEditorView: View {
                 .padding(.horizontal)
             }
             
-            // Placeholder AI action bar (disabled)
+            // AI Action Bar
             HStack(spacing: 8) {
-                ForEach(["Title", "Summary", "Tags"], id: \.self) { label in
-                    Button(label) {}
-                        .disabled(true)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 12)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(
-                            Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-                        .foregroundStyle(.secondary)
+                // Title Button
+                Button {
+                    Task { await suggestTitle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isProcessingAI {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "textformat.alt")
+                        }
+                        Text("Title")
+                    }
                 }
+                .disabled(isProcessingAI || draft.body.trimmed().isEmpty)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .foregroundStyle(isProcessingAI || draft.body.trimmed().isEmpty ? .secondary : .primary)
+                .accessibilityLabel("Suggest Title")
+                
+                // Summary Button
+                Button {
+                    Task { await generateSummary() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isProcessingAI {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "doc.text")
+                        }
+                        Text("Summary")
+                    }
+                }
+                .disabled(isProcessingAI || draft.body.trimmed().isEmpty)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .foregroundStyle(isProcessingAI || draft.body.trimmed().isEmpty ? .secondary : .primary)
+                .accessibilityLabel("Rehearsal Summary")
+                
+                // Tags Button
+                Button {
+                    Task { await extractTags() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isProcessingAI {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "number")
+                        }
+                        Text("Tags")
+                    }
+                }
+                .disabled(isProcessingAI || draft.body.trimmed().isEmpty)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .foregroundStyle(isProcessingAI || draft.body.trimmed().isEmpty ? .secondary : .primary)
+                .accessibilityLabel("Extract Tags")
             }
             .padding(.bottom, 10)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("AI actions disabled")
         }
         .padding(.top, 16)
         .background(
@@ -153,9 +224,165 @@ struct NoteEditorView: View {
             copy.touch()
             onCommit(copy)
         }
+        // AI Error Alert
+        .alert("AI Error", isPresented: $showAIError) {
+            Button("OK") { }
+        } message: {
+            Text(aiError)
+        }
+        // Title Confirmation Alert
+        .alert("Apply Title?", isPresented: $showTitleConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Apply") { applyTitle() }
+        } message: {
+            Text("Replace current title with: \"\(pendingTitle)\"")
+        }
+        // Summary Result Alert
+        .alert("Summary Generated", isPresented: $showSummaryResult) {
+            Button("Cancel", role: .cancel) { }
+            Button("Append") { applySummary() }
+        } message: {
+            if let summary = pendingSummary {
+                Text("Logline: \(summary.logline)\n\nBeats: \(summary.beats.count) items")
+            }
+        }
+        // Tags Result Alert
+        .alert("Tags Generated", isPresented: $showTagsResult) {
+            Button("Cancel", role: .cancel) { }
+            Button("Add") { applyTags() }
+        } message: {
+            Text("Found \(pendingTags.count) tags: \(pendingTags.joined(separator: ", "))")
+        }
     }
     
     private func toggleStar() { draft.starred.toggle(); draft.touch(); onCommit(draft) }
+    
+    // MARK: - AI Methods
+    @MainActor
+    private func suggestTitle() async {
+        guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+        
+        isProcessingAI = true
+        
+        do {
+            let title = try await aiService.suggestTitle(for: draft.body)
+            pendingTitle = title
+            
+            // Auto-apply if current title is empty, otherwise ask for confirmation
+            if draft.title.trimmed().isEmpty {
+                applyTitle()
+            } else {
+                showTitleConfirm = true
+            }
+        } catch {
+            handleAIError(error)
+        }
+        
+        isProcessingAI = false
+    }
+    
+    @MainActor
+    private func generateSummary() async {
+        guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+        
+        isProcessingAI = true
+        
+        do {
+            let summary = try await aiService.rehearsalSummary(for: draft.body)
+            pendingSummary = summary
+            showSummaryResult = true
+        } catch {
+            handleAIError(error)
+        }
+        
+        isProcessingAI = false
+    }
+    
+    @MainActor
+    private func extractTags() async {
+        guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
+        
+        isProcessingAI = true
+        
+        do {
+            let tags = try await aiService.extractTags(for: draft.body)
+            pendingTags = tags
+            showTagsResult = true
+        } catch {
+            handleAIError(error)
+        }
+        
+        isProcessingAI = false
+    }
+    
+    private func handleAIError(_ error: Error) {
+        if let aiError = error as? AIError {
+            self.aiError = aiError.errorDescription ?? "Unknown AI error"
+        } else {
+            self.aiError = "Network error: \(error.localizedDescription)"
+        }
+        showAIError = true
+    }
+    
+    // MARK: - Result Application
+    private func applyTitle() {
+        draft.title = pendingTitle
+        draft.touch()
+        onCommit(draft)
+        pendingTitle = ""
+    }
+    
+    private func applySummary() {
+        guard let summary = pendingSummary else { return }
+        
+        // Check if we already have a separator near the end
+        let body = draft.body
+        let lastPart = String(body.suffix(20))
+        let hasSeparator = lastPart.contains("---") || lastPart.contains("___")
+        
+        var newContent = body
+        if !body.trimmed().isEmpty && !hasSeparator {
+            newContent += body.hasSuffix("\n") ? "\n---\n\n" : "\n\n---\n\n"
+        } else if !body.trimmed().isEmpty {
+            newContent += body.hasSuffix("\n") ? "\n" : "\n\n"
+        }
+        
+        newContent += "**Logline:** \(summary.logline)\n\n"
+        newContent += "**Beats:**\n"
+        for (index, beat) in summary.beats.enumerated() {
+            newContent += "\(index + 1). \(beat)\n"
+        }
+        
+        draft.body = newContent
+        draft.touch()
+        onCommit(draft)
+        pendingSummary = nil
+    }
+    
+    private func applyTags() {
+        // Find existing tags in the body and avoid duplicates
+        let existingText = draft.body.lowercased()
+        let newTags = pendingTags.filter { tag in
+            !existingText.contains(tag.lowercased())
+        }
+        
+        guard !newTags.isEmpty else {
+            pendingTags = []
+            return
+        }
+        
+        var newContent = draft.body
+        if !newContent.trimmed().isEmpty {
+            newContent += newContent.hasSuffix("\n") ? "\n" : "\n\n"
+        }
+        
+        newContent += newTags.joined(separator: " ")
+        
+        draft.body = newContent
+        draft.touch()
+        onCommit(draft)
+        pendingTags = []
+    }
 }
 
 #Preview {
