@@ -1,11 +1,14 @@
 // GOAL: Note model, NotesStore, Keychain helper, JSON persistence.
 // - NotesStore: @Published notes[], create/upsert/delete/toggleStar, filtered(query, filter)
-// - fileURL: Documents/notes.json; load() async; saveAsync() detached & atomic (later step)
+// - fileURL: Documents/notes.json; load() async; saveAsync() detached & atomic
 // - Keychain: simple add/update/read for "OPENAI_API_KEY" (later step)
 // No external deps. No force unwraps. Unit-test friendly pure helpers.
 //
 // Phase 1: Define Note model
-// Phase 2: Add NotesStore skeleton (this update) WITHOUT persistence yet.
+// Phase 2: NotesStore skeleton
+// Phase 3: Persistence helpers
+// Phase 4: load()
+// Phase 5: debounced save + autosave (current)
 
 import Foundation
 import Combine
@@ -64,12 +67,15 @@ enum NoteFilter: String, CaseIterable, Identifiable { // Identifiable for UI Seg
     var id: String { rawValue }
 }
 
-// MARK: - NotesStore Skeleton (no persistence yet)
-/// Observable container for notes with basic CRUD and filtering logic.
-/// Persistence, debounce save & keychain will be added in subsequent atomic steps.
+// MARK: - NotesStore Skeleton (with load)
+/// Observable container for notes with basic CRUD, filtering, and disk load (save pending).
 @MainActor
 final class NotesStore: ObservableObject {
     @Published private(set) var notes: [Note]
+    
+    // Debounce state
+    private var pendingSaveTask: Task<Void, Never>? = nil
+    private let saveDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
     
     init(notes: [Note] = []) {
         self.notes = notes
@@ -82,6 +88,7 @@ final class NotesStore: ObservableObject {
         var note = Note.blank()
         note.touch()
         notes.insert(note, at: 0) // newest first
+        scheduleSave()
         return note
     }
     
@@ -93,11 +100,13 @@ final class NotesStore: ObservableObject {
         } else {
             notes.insert(note, at: 0)
         }
+        scheduleSave()
     }
     
     // MARK: Delete
     func delete(id: UUID) {
         notes.removeAll { $0.id == id }
+        scheduleSave()
     }
     
     // MARK: Star Toggle
@@ -107,6 +116,7 @@ final class NotesStore: ObservableObject {
         notes[idx].touch()
         // Re-sort to keep most recently touched first.
         sortInPlace()
+        scheduleSave()
     }
     
     // MARK: Filtering
@@ -125,13 +135,91 @@ final class NotesStore: ObservableObject {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
     
+    // MARK: Load (read-only, synchronous I/O wrapped in async context)
+    /// Loads notes from disk; on any failure seeds with sample notes. Idempotent.
+    func load() async {
+        let url = Self.fileURL
+        do {
+            let data = try Data(contentsOf: url)
+            let decoded = try Self.parseNotes(from: data)
+            notes = decoded
+        } catch {
+            notes = Note.seed
+        }
+        sortInPlace()
+    }
+    
+    // MARK: Debounced Save
+    private func scheduleSave() {
+        pendingSaveTask?.cancel()
+        let snapshot = notes // capture now on main
+        pendingSaveTask = Task { [snapshot] in
+            // debounce delay
+            try? await Task.sleep(nanoseconds: saveDelay)
+            await performSave(snapshot: snapshot)
+        }
+    }
+    
+    /// Performs encoding + atomic write off the main actor.
+    private func performSave(snapshot: [Note]) async {
+        let url = Self.fileURL
+        do {
+            let data = try Self.makeData(from: snapshot)
+            try await Self.atomicWrite(data: data, to: url)
+        } catch {
+            // Silently ignore; in later phase could surface a non-blocking alert/log.
+        }
+    }
+    
     // MARK: Sorting Helper
     private func sortInPlace() {
         notes.sort { $0.updatedAt > $1.updatedAt }
     }
 }
 
+// MARK: - Persistence Helpers (extended with atomic write)
+extension NotesStore {
+    enum PersistenceError: Error { case encodingFailed; case decodingFailed; case writeFailed }
+    
+    /// The target file URL for notes.json (falls back to temp if documents not found)
+    static var fileURL: URL {
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            return docs.appendingPathComponent("notes.json")
+        }
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("notes.json")
+    }
+    
+    /// Shared JSONEncoder configured per contract.
+    static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return e
+    }()
+    
+    /// Shared JSONDecoder configured per contract.
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+    
+    /// Produce Data from notes array using configured encoder.
+    static func makeData(from notes: [Note]) throws -> Data {
+        do { return try encoder.encode(notes) } catch { throw PersistenceError.encodingFailed }
+    }
+    
+    /// Decode notes from raw Data; on failure throws decodingFailed.
+    static func parseNotes(from data: Data) throws -> [Note] {
+        do { return try decoder.decode([Note].self, from: data) } catch { throw PersistenceError.decodingFailed }
+    }
+    
+    static func atomicWrite(data: Data, to url: URL) async throws {
+        do { try data.write(to: url, options: .atomic) } catch { throw PersistenceError.writeFailed }
+    }
+}
+
 // Placeholder for forthcoming types (added in later atomic steps to honor 5-file limit):
 // enum KeychainError: Error { /* to be implemented */ }
 // struct KeychainHelper { /* to be implemented */ }
-// Persistence (load/save, debounce) will be appended here next.
+// Debounced save & autosave hooks will be appended next.
