@@ -38,6 +38,14 @@
 	- `NoteEditorView.swift` (에디터 + AI 버튼)
 8) 빌드 경고(Warning) 0. 네트워크/퍼시스턴스에 force unwrap 금지. 동시성은 async/await 사용.
 
+### 구현 추가 가치 (Progress Beyond Baseline)
+- Keychain 헬퍼 (API Key 저장/조회/삭제)
+- Navigation push 기반 에디터 (sheet 제거)
+- Zoom Summaries (Line / Key / Brief / Full) 휴리스틱 캐시
+- Beats 추출(빈 줄/구분자) + 가로 스크롤 카드
+- Monochrome 아티스트 톤 UI + Star 배지 오버레이
+- Debounced autosave (300ms) + atomic write
+
 ### 아키텍처
 에디터는 NotesStore에 변경을 전달하며, NotesStore는 JSON 저장/로드 담당. AIService는 에디터로부터 호출, Store에는 간접적으로(결과 적용 후) 반영.
 
@@ -49,14 +57,14 @@ Persistence 상세:
 - 쓰기: 스냅샷 복사 후 `data.write(.atomic)` (Task.detached)
 - 로드 실패 시 샘플 2개 노트 시드(seed)
 
-### AI 인터페이스
-`AIService` 프로토콜 3개 메서드(제목, 리허설 요약, 태그 추출) + `RehearsalSummary` 구조체(logline, 1~5 beats).
-OpenAI 호환 구현 요구사항:
-- 고정 Base URL 하나 선택(`/v1/responses` 또는 `/v1/chat/completions`).
-- 헤더: Authorization Bearer 토큰, Content-Type JSON.
-- JSON 모드 사용, 타겟 스키마 강제.
-- 기본 모델: `gpt-4o-mini` (설정에서 변경 가능).
-- 타임아웃 12초. 실패 시 typed error → 사용자 친화 메시지.
+### AI 인터페이스 (예정 구현)
+`AIService` (suggestTitle / rehearsalSummary / extractTags) + `RehearsalSummary`(logline, beats)
+OpenAI 요구사항:
+- Base URL: `/v1/responses`
+- Headers: Bearer + JSON Content-Type
+- JSON 모드 엄격 스키마
+- 기본 모델: `gpt-4o-mini`
+- Timeout 12s → 실패 시 휴리스틱 fallback (현재 로컬 요약/키워드 활용)
 
 ### JSON 출력 계약
 - SuggestTitle: { "title": "..." } (≤48 chars)
@@ -111,12 +119,13 @@ OpenAI 호환 구현 요구사항:
 - 로컬라이제이션: Base English, 필요시 소규모 한국어 inline OK
 - API 키 없으면 AI 버튼 Alert (크래시 금지)
 
-### 5시간 계획 (스프린트 재진술)
-1. 60분: 모델/스토어/퍼시스턴스 → 리스트/에디터 기본
-2. 90분: AIService + 설정 시트 + 토스트/에러
-3. 40분: 접근성(Dynamic Type/VoiceOver)
-4. 30분: Privacy manifest, 아이콘, 카피
-5. 20분: 빌드/테스트/스크린샷용 더미 정리
+### 남은 단기 실행 순서 (Revised)
+1. AIService.swift 추가 (프로토콜 + 단일 request 기반 OpenAI wrapper)
+2. Settings 시트 (API Key + Model + Validate ping)
+3. 에디터 AI 버튼 활성 (idle/loading/error/done 상태, fallback 즉시 사용)
+4. 결과 적용 UX (제목 충돌 Alert, summary append 구분선 검사, tag merge)
+5. Privacy Manifest & AppIcon & 접근성 라벨 보강
+6. 오류 피드백 (toast/banner) + QA 체크리스트 마무리
 
 ### 커밋 템플릿
 원문 커밋 메시지 그대로 사용 가능(국문 주석 불필요). 필요시 한글 주석 추가해도 무방.
