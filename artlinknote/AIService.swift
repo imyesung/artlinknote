@@ -12,6 +12,7 @@ protocol AIService {
     func suggestTitle(for text: String) async throws -> String
     func rehearsalSummary(for text: String) async throws -> RehearsalSummary
     func extractTags(for text: String) async throws -> [String]
+    func extractKeywords(for text: String) async throws -> [String]
 }
 
 // MARK: - Response Schemas
@@ -26,6 +27,10 @@ struct TitleResponse: Codable {
 
 struct TagsResponse: Codable {
     let tags: [String]
+}
+
+struct KeywordsResponse: Codable {
+    let keywords: [String]
 }
 
 // MARK: - AI Errors
@@ -162,6 +167,59 @@ final class OpenAIService: AIService {
         }
         
         return cleanTags.isEmpty ? heuristicTags(from: text) : Array(cleanTags.prefix(5))
+    }
+    
+    func extractKeywords(for text: String) async throws -> [String] {
+        let isKorean = detectKorean(in: text)
+        let systemPrompt = isKorean ? """
+        당신은 지능형 키워드 분석기입니다. 주어진 텍스트에서 가장 핵심적이고 중요한 키워드 3-6개를 정확하게 추출하세요.
+        
+        텍스트의 주제와 맥락을 정확히 파악하여 해당 분야에 적합한 키워드를 추출하세요:
+        - 기술/개발: 알고리즘, 성능, 최적화, 구조 등
+        - 연기/예술: 감정, 표현, 캐릭터, 기법 등  
+        - 일반 주제: 해당 분야의 핵심 개념들
+        
+        키워드는:
+        1. 명사 형태로 추출
+        2. 조사(은/는/이/가/을/를/의/에/로 등) 제거
+        3. 텍스트 내용과 직접적으로 관련된 것만
+        4. 너무 일반적이거나 모호한 단어 제외
+        
+        반드시 유효한 JSON만 반환하세요: {"keywords": ["키워드1", "키워드2", ...]}
+        """ : """
+        You are an intelligent keyword analyzer. Extract 3-6 most essential and relevant keywords from the given text.
+        
+        Accurately understand the topic and context of the text to extract appropriate keywords for that field:
+        - Tech/Development: algorithms, performance, optimization, architecture, etc.
+        - Acting/Arts: emotions, expression, character, techniques, etc.
+        - General topics: core concepts of the respective field
+        
+        Keywords should be:
+        1. In noun form
+        2. Directly related to the text content
+        3. Specific rather than generic or vague
+        4. Representative of the main concepts
+        
+        Return only valid JSON: {"keywords": ["keyword1", "keyword2", ...]}
+        """
+        
+        let response: KeywordsResponse = try await makeRequest(
+            systemPrompt: systemPrompt,
+            userText: text,
+            responseType: KeywordsResponse.self
+        )
+        
+        // Clean and validate keywords
+        let cleanKeywords = response.keywords.compactMap { keyword in
+            let cleaned = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Validate keyword quality
+            if cleaned.count >= 2 && cleaned.count <= 15 && !cleaned.isEmpty {
+                return cleaned
+            }
+            return nil
+        }
+        
+        return cleanKeywords.isEmpty ? heuristicKeywords(from: text) : Array(cleanKeywords.prefix(6))
     }
     
     // MARK: - Language Detection
@@ -339,6 +397,55 @@ extension OpenAIService {
                 keywords.contains { lowercased.contains($0) } ? tag : nil
             }
             return Array(matched.prefix(3)) + (matched.isEmpty ? ["#note"] : [])
+        }
+    }
+    
+    private func heuristicKeywords(from text: String) -> [String] {
+        let isKorean = detectKorean(in: text)
+        let lowercased = text.lowercased()
+        
+        if isKorean {
+            // 기술/개발 관련
+            let techKeywords = ["알고리즘", "스케줄링", "최적화", "성능", "멀티코어", "CPU", "메모리", "프로세서", "시스템", "구조", "설계", "분석"]
+            // 연기/예술 관련  
+            let actingKeywords = ["감정", "표현", "캐릭터", "연기", "기법", "즉흥", "호흡", "발성", "갈등", "긴장"]
+            // 일반적인 중요 키워드
+            let generalKeywords = ["방법", "전략", "과정", "결과", "문제", "해결", "개선", "효과", "영향", "변화"]
+            
+            let allKeywords = techKeywords + actingKeywords + generalKeywords
+            let matched = allKeywords.filter { lowercased.contains($0) }
+            
+            // 매칭되는 키워드가 없으면 텍스트에서 직접 추출
+            if matched.isEmpty {
+                let words = text.components(separatedBy: .whitespacesAndNewlines)
+                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?:;()[]{}\"'")) }
+                    .filter { $0.count >= 2 && $0.count <= 10 }
+                    .prefix(3)
+                return Array(words)
+            }
+            
+            return Array(matched.prefix(6))
+        } else {
+            // 기술/개발 관련
+            let techKeywords = ["algorithm", "scheduling", "optimization", "performance", "multicore", "cpu", "memory", "processor", "system", "architecture", "design", "analysis"]
+            // 연기/예술 관련
+            let actingKeywords = ["emotion", "expression", "character", "acting", "technique", "improvisation", "breathing", "voice", "conflict", "tension"]
+            // 일반적인 중요 키워드
+            let generalKeywords = ["method", "strategy", "process", "result", "problem", "solution", "improvement", "effect", "impact", "change"]
+            
+            let allKeywords = techKeywords + actingKeywords + generalKeywords
+            let matched = allKeywords.filter { lowercased.contains($0) }
+            
+            // 매칭되는 키워드가 없으면 텍스트에서 직접 추출
+            if matched.isEmpty {
+                let words = text.components(separatedBy: .whitespacesAndNewlines)
+                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?:;()[]{}\"'")) }
+                    .filter { $0.count >= 2 && $0.count <= 10 }
+                    .prefix(3)
+                return Array(words)
+            }
+            
+            return Array(matched.prefix(6))
         }
     }
 }

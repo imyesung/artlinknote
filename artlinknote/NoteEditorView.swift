@@ -537,10 +537,17 @@ struct ProgressiveLevelView: View {
                             .stroke(isCurrentLevel ? .blue.opacity(0.3) : .clear, lineWidth: 2)
                     )
                 } else {
-                    // Summary Content
+                    // Summary Content with special handling for Keywords
                     let summaryText = store.summary(for: draft, level: level)
                     
-                    if !summaryText.isEmpty {
+                    if level == .keywords {
+                        // Special keyword and tags display
+                        KeywordTagsDisplayView(
+                            summaryText: summaryText, 
+                            noteBody: draft.body,
+                            isCurrentLevel: isCurrentLevel
+                        )
+                    } else if !summaryText.isEmpty {
                         Text(summaryText)
                             .font(.system(.body, design: .serif))
                             .lineSpacing(2)
@@ -574,6 +581,201 @@ struct ProgressiveLevelView: View {
         case .brief: return "Brief"
         case .full: return "Full"
         }
+    }
+}
+
+// MARK: - Keyword & Tags Display Component
+struct KeywordTagsDisplayView: View {
+    let summaryText: String
+    let noteBody: String
+    let isCurrentLevel: Bool
+    
+    @State private var aiKeywords: [String] = []
+    @State private var isLoadingKeywords = false
+    private let aiService = OpenAIService()
+    
+    private var keywords: [String] {
+        // Use AI-generated keywords if available, otherwise fallback to basic extraction
+        return aiKeywords.isEmpty ? basicKeywordExtraction() : aiKeywords
+    }
+    
+    private func basicKeywordExtraction() -> [String] {
+        // Fallback basic extraction (much simpler than before)
+        let text = summaryText.isEmpty ? noteBody : summaryText
+        let words = text.components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?:;()[]{}\"'")) }
+            .filter { $0.count >= 2 && $0.count <= 10 }
+            .prefix(3)
+        return Array(words)
+    }
+    
+    private var hashTags: [String] {
+        // Extract hashtags from note body
+        let regex = try? NSRegularExpression(pattern: "#\\w+", options: [])
+        let range = NSRange(location: 0, length: noteBody.utf16.count)
+        let matches = regex?.matches(in: noteBody, options: [], range: range) ?? []
+        
+        return matches.compactMap { match in
+            guard let range = Range(match.range, in: noteBody) else { return nil }
+            return String(noteBody[range])
+        }
+    }
+    
+    private var allItems: [(text: String, type: ItemType)] {
+        var items: [(text: String, type: ItemType)] = []
+        
+        // Add AI keywords
+        items += keywords.map { (text: $0, type: .keyword) }
+        
+        // Add hashtags
+        items += hashTags.map { (text: $0, type: .hashtag) }
+        
+        return Array(items.prefix(8)) // Limit total items
+    }
+    
+    enum ItemType {
+        case keyword, hashtag
+        
+        var color: Color {
+            switch self {
+            case .keyword: return .blue
+            case .hashtag: return .green
+            }
+        }
+        
+        var icon: String {
+            switch self {
+            case .keyword: return "brain.head.profile"
+            case .hashtag: return "number"
+            }
+        }
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            HStack(spacing: 8) {
+                if isLoadingKeywords {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .foregroundStyle(.blue)
+                } else {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.blue)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                Text("AI 키워드 & 태그")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                Spacer()
+                Text("\(allItems.count)")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+            }
+            
+            if allItems.isEmpty && !isLoadingKeywords {
+                // Empty state
+                HStack {
+                    Image(systemName: "brain.head.profile")
+                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 16, weight: .medium))
+                    Text("AI 분석 중이거나 키워드 없음")
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            } else {
+                // Keywords and Tags grid
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
+                    ForEach(Array(allItems.enumerated()), id: \.offset) { index, item in
+                        KeywordTagCard(text: item.text, type: item.type)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(isCurrentLevel ? .blue.opacity(0.3) : Color.primary.opacity(0.06), lineWidth: isCurrentLevel ? 2 : 1)
+        )
+        .shadow(color: .black.opacity(0.02), radius: 4, x: 0, y: 2)
+        .task {
+            await loadAIKeywords()
+        }
+    }
+    
+    private func loadAIKeywords() async {
+        let textToAnalyze = summaryText.isEmpty ? noteBody : summaryText
+        guard !textToAnalyze.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        
+        await MainActor.run {
+            isLoadingKeywords = true
+        }
+        
+        do {
+            let extractedKeywords = try await aiService.extractKeywords(for: textToAnalyze)
+            await MainActor.run {
+                aiKeywords = extractedKeywords
+                isLoadingKeywords = false
+            }
+        } catch {
+            // Fallback to basic extraction on error
+            await MainActor.run {
+                aiKeywords = basicKeywordExtraction()
+                isLoadingKeywords = false
+            }
+        }
+    }
+}
+
+// MARK: - Individual Keyword/Tag Card
+struct KeywordTagCard: View {
+    let text: String
+    let type: KeywordTagsDisplayView.ItemType
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            // Icon based on type
+            Image(systemName: type.icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(type.color)
+                .frame(width: 16, height: 16)
+            
+            Text(text)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            LinearGradient(
+                colors: [type.color.opacity(0.08), type.color.opacity(0.04)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(type.color.opacity(0.15), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
     }
 }
 
