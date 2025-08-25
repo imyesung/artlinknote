@@ -160,6 +160,9 @@ struct NoteEditorView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("\(level.displayName) view")
+                        .accessibilityHint("Switch to \(level.displayName.lowercased()) view mode")
+                        .accessibilityAddTraits(level == zoomLevel ? .isSelected : [])
                         
                         if level.rawValue < NotesStore.SummaryLevel.allCases.count {
                             Divider()

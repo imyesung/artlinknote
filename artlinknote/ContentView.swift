@@ -47,6 +47,8 @@ struct ContentView: View {
         .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.top, 8)
+        .accessibilityLabel("Filter notes")
+        .accessibilityHint("Choose between all notes or starred notes only")
     }
     
     private var emptyState: some View {
@@ -65,9 +67,15 @@ struct ContentView: View {
                 NavigationLink(value: note) {
                     NoteRow(note: note)
                 }
+                .accessibilityLabel("Note: \(note.title.isEmpty ? "Untitled" : note.title)")
+                .accessibilityHint("Tap to edit this note")
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) { store.delete(id: note.id) } label: { Label("Delete", systemImage: "trash") }
+                        .accessibilityLabel("Delete note")
+                        .accessibilityHint("Permanently delete this note")
                     Button { store.toggleStar(id: note.id) } label: { Label(note.starred ? "Unstar" : "Star", systemImage: note.starred ? "star.slash" : "star") }.tint(.yellow)
+                        .accessibilityLabel(note.starred ? "Remove from favorites" : "Add to favorites")
+                        .accessibilityHint(note.starred ? "Remove star from this note" : "Mark this note as favorite")
                 }
             }
             .listRowBackground(AppBackground.row)

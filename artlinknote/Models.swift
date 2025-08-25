@@ -135,7 +135,7 @@ struct KeychainHelper {
     }
 }
 
-// TODO(next atomic step):
+// MARK: - Tier A Heuristics (Complete Implementation)
 // MARK: - Tier A Heuristics (Summaries + Beats)
 extension NotesStore {
     enum SummaryLevel: Int, CaseIterable { 
