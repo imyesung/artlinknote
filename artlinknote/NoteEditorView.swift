@@ -617,7 +617,9 @@ struct KeywordTagsDisplayView: View {
         
         return matches.compactMap { match in
             guard let range = Range(match.range, in: noteBody) else { return nil }
-            return String(noteBody[range])
+            let hashtag = String(noteBody[range])
+            // Remove the # symbol for display
+            return String(hashtag.dropFirst())
         }
     }
     
