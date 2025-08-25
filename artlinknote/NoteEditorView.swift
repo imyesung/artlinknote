@@ -527,8 +527,7 @@ struct ProgressiveLevelView: View {
                         ))
                             .font(.system(.body, design: .serif))
                             .scrollContentBackground(.hidden)
-                            .scrollDisabled(true)
-                            .frame(minHeight: 120)
+                            .frame(minHeight: 500)
                             .padding(8)
                     }
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
