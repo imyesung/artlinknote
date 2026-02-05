@@ -1,29 +1,15 @@
-// GOAL: Editor with Title, Cue mode toggle, TextEditor.
-// - Toolbar: Star toggle, AI actions (Suggest Title / Rehearsal Summary / Tags) to be added later.
+// GOAL: Editor with Title, Star toggle, TextEditor.
+// - Progressive zoom levels: Keywords, Line, Brief, Full
 // - onChange(note) -> store.upsert(newValue) via closure.
-// - AI actions placeholder (disabled) for now.
+// - Local heuristic-based keyword extraction (no external API).
 
 import SwiftUI
 
 struct NoteEditorView: View {
     @State private var draft: Note
     @State private var zoomLevel: NotesStore.SummaryLevel? = nil
-    // @State private var showBeats: Bool = false // COMMENTED OUT - Can be reused for AI chatbot toggle
     let onCommit: (Note) -> Void
     @EnvironmentObject private var store: NotesStore
-    
-    // AI State Management
-    @State private var isProcessingAI: Bool = false
-    @State private var aiError: String = ""
-    @State private var showAIError: Bool = false
-    @State private var pendingTitle: String = ""
-    @State private var pendingSummary: RehearsalSummary? = nil
-    @State private var pendingTags: [String] = []
-    @State private var showTitleConfirm: Bool = false
-    @State private var showSummaryResult: Bool = false
-    @State private var showTagsResult: Bool = false
-    
-    private let aiService = OpenAIService()
     
     
     init(note: Note, onCommit: @escaping (Note) -> Void) {
@@ -33,102 +19,42 @@ struct NoteEditorView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .center, spacing: 10) {
-                    TextField("Untitled", text: $draft.title)
-                        .font(.system(.title3, design: .serif))
-                        .textInputAutocapitalization(.sentences)
-                        .disableAutocorrection(false)
-                        .accessibilityLabel("Title")
-                    Spacer()
-                    Button { toggleStar() } label: {
-                        Image(systemName: draft.starred ? "star.fill" : "star")
-                            .foregroundStyle(draft.starred ? .yellow : .secondary)
-                            .padding(6)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(draft.starred ? "Unstar" : "Star")
+            // Header with title and star
+            HStack(alignment: .center, spacing: 12) {
+                TextField("Untitled", text: $draft.title)
+                    .font(.system(.title2, design: .serif, weight: .medium))
+                    .textInputAutocapitalization(.sentences)
+                    .disableAutocorrection(false)
+                    .accessibilityLabel("Title")
+
+                Spacer()
+
+                // Enhanced star button
+                Button {
+                    toggleStar()
+                    HapticManager.light()
+                } label: {
+                    Image(systemName: draft.starred ? "star.fill" : "star")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(draft.starred ? .orange : .secondary)
+                        .padding(10)
+                        .background(
+                            Circle()
+                                .fill(draft.starred ? Color.orange.opacity(0.15) : Color(.systemGray5))
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(draft.starred ? Color.orange.opacity(0.3) : Color.clear, lineWidth: 1)
+                        )
+                        .scaleEffect(draft.starred ? 1.05 : 1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: draft.starred)
                 }
-                Divider()
+                .buttonStyle(.plain)
+                .accessibilityLabel(draft.starred ? "Remove star" : "Add star")
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
             
-            // AI Action Bar (moved from bottom)
-            HStack(spacing: 8) {
-                // Title Button
-                Button {
-                    Task { await suggestTitle() }
-                } label: {
-                    HStack(spacing: 4) {
-                        if isProcessingAI {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "textformat.alt")
-                        }
-                        Text("Title")
-                    }
-                }
-                .disabled(isProcessingAI || draft.body.trimmed().isEmpty)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 12)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .foregroundStyle(isProcessingAI || draft.body.trimmed().isEmpty ? .secondary : .primary)
-                .accessibilityLabel("Suggest Title")
-                
-                // Summary Button
-                Button {
-                    Task { await generateSummary() }
-                } label: {
-                    HStack(spacing: 4) {
-                        if isProcessingAI {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "doc.text")
-                        }
-                        Text("Summary")
-                    }
-                }
-                .disabled(isProcessingAI || draft.body.trimmed().isEmpty)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 12)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .foregroundStyle(isProcessingAI || draft.body.trimmed().isEmpty ? .secondary : .primary)
-                .accessibilityLabel("Rehearsal Summary")
-                
-                // Tags Button
-                Button {
-                    Task { await extractTags() }
-                } label: {
-                    HStack(spacing: 4) {
-                        if isProcessingAI {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "number")
-                        }
-                        Text("Tags")
-                    }
-                }
-                .disabled(isProcessingAI || draft.body.trimmed().isEmpty)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 12)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .foregroundStyle(isProcessingAI || draft.body.trimmed().isEmpty ? .secondary : .primary)
-                .accessibilityLabel("Extract Tags")
-            }
-            .padding(.horizontal)
             
             // Progressive Zoom Control (Always visible - Fixed UI)
             VStack(alignment: .leading, spacing: 12) {
@@ -296,184 +222,9 @@ struct NoteEditorView: View {
             copy.touch()
             onCommit(copy)
         }
-        // AI Error Alert
-        .alert("AI Error", isPresented: $showAIError) {
-            Button("OK") { }
-        } message: {
-            Text(aiError)
-        }
-        // Title Confirmation Alert
-        .alert("Apply Title?", isPresented: $showTitleConfirm) {
-            Button("Cancel", role: .cancel) { }
-            Button("Apply") { applyTitle() }
-        } message: {
-            Text("Replace current title with: \"\(pendingTitle)\"")
-        }
-        // Summary Result Alert
-        .alert("Summary Generated", isPresented: $showSummaryResult) {
-            Button("Cancel", role: .cancel) { }
-            Button("Append") { applySummary() }
-        } message: {
-            if let summary = pendingSummary {
-                Text("Logline: \(summary.logline)\n\nBeats: \(summary.beats.count) items")
-            }
-        }
-        // Tags Result Alert
-        .alert("Tags Generated", isPresented: $showTagsResult) {
-            Button("Cancel", role: .cancel) { }
-            Button("Add") { applyTags() }
-        } message: {
-            Text("Found \(pendingTags.count) tags: \(pendingTags.joined(separator: ", "))")
-        }
     }
     
     private func toggleStar() { draft.starred.toggle(); draft.touch(); onCommit(draft) }
-    
-    
-    // MARK: - AI Methods
-    private func suggestTitle() async {
-        await MainActor.run {
-            guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
-            isProcessingAI = true
-        }
-        
-        do {
-            let title = try await aiService.suggestTitle(for: draft.body)
-            await MainActor.run {
-                pendingTitle = title
-                
-                // Auto-apply if current title is empty, otherwise ask for confirmation
-                if draft.title.trimmed().isEmpty {
-                    applyTitle()
-                } else {
-                    showTitleConfirm = true
-                }
-            }
-        } catch {
-            await MainActor.run {
-                handleAIError(error)
-            }
-        }
-        
-        await MainActor.run {
-            isProcessingAI = false
-        }
-    }
-    
-    private func generateSummary() async {
-        await MainActor.run {
-            guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
-            isProcessingAI = true
-        }
-        
-        do {
-            let summary = try await aiService.rehearsalSummary(for: draft.body)
-            await MainActor.run {
-                pendingSummary = summary
-                showSummaryResult = true
-            }
-        } catch {
-            await MainActor.run {
-                handleAIError(error)
-            }
-        }
-        
-        await MainActor.run {
-            isProcessingAI = false
-        }
-    }
-    
-    private func extractTags() async {
-        await MainActor.run {
-            guard !isProcessingAI && !draft.body.trimmed().isEmpty else { return }
-            isProcessingAI = true
-        }
-        
-        do {
-            let tags = try await aiService.extractTags(for: draft.body)
-            await MainActor.run {
-                pendingTags = tags
-                showTagsResult = true
-            }
-        } catch {
-            await MainActor.run {
-                handleAIError(error)
-            }
-        }
-        
-        await MainActor.run {
-            isProcessingAI = false
-        }
-    }
-    
-    private func handleAIError(_ error: Error) {
-        if let aiError = error as? AIError {
-            self.aiError = aiError.errorDescription ?? "Unknown AI error"
-        } else {
-            self.aiError = "Network error: \(error.localizedDescription)"
-        }
-        showAIError = true
-    }
-    
-    // MARK: - Result Application
-    private func applyTitle() {
-        draft.title = pendingTitle
-        draft.touch()
-        onCommit(draft)
-        pendingTitle = ""
-    }
-    
-    private func applySummary() {
-        guard let summary = pendingSummary else { return }
-        
-        // Check if we already have a separator near the end
-        let body = draft.body
-        let lastPart = String(body.suffix(20))
-        let hasSeparator = lastPart.contains("---") || lastPart.contains("___")
-        
-        var newContent = body
-        if !body.trimmed().isEmpty && !hasSeparator {
-            newContent += body.hasSuffix("\n") ? "\n---\n\n" : "\n\n---\n\n"
-        } else if !body.trimmed().isEmpty {
-            newContent += body.hasSuffix("\n") ? "\n" : "\n\n"
-        }
-        
-        newContent += "**Logline:** \(summary.logline)\n\n"
-        newContent += "**Beats:**\n"
-        for (index, beat) in summary.beats.enumerated() {
-            newContent += "\(index + 1). \(beat)\n"
-        }
-        
-        draft.body = newContent
-        draft.touch()
-        onCommit(draft)
-        pendingSummary = nil
-    }
-    
-    private func applyTags() {
-        // Find existing tags in the body and avoid duplicates
-        let existingText = draft.body.lowercased()
-        let newTags = pendingTags.filter { tag in
-            !existingText.contains(tag.lowercased())
-        }
-        
-        guard !newTags.isEmpty else {
-            pendingTags = []
-            return
-        }
-        
-        var newContent = draft.body
-        if !newContent.trimmed().isEmpty {
-            newContent += newContent.hasSuffix("\n") ? "\n" : "\n\n"
-        }
-        
-        newContent += newTags.joined(separator: " ")
-        
-        draft.body = newContent
-        draft.touch()
-        onCommit(draft)
-        pendingTags = []
-    }
 }
 
 // MARK: - Progressive Level View Component
@@ -586,67 +337,71 @@ struct ProgressiveLevelView: View {
     }
 }
 
-// MARK: - Keyword & Tags Display Component
+// MARK: - Keyword & Tags Display Component (Local Heuristic Only)
 struct KeywordTagsDisplayView: View {
     let summaryText: String
     let noteBody: String
     let isCurrentLevel: Bool
-    
-    @State private var aiKeywords: [String] = []
-    @State private var isLoadingKeywords = false
-    private let aiService = OpenAIService()
-    
+
     private var keywords: [String] {
-        // Use AI-generated keywords if available, otherwise fallback to basic extraction
-        return aiKeywords.isEmpty ? basicKeywordExtraction() : aiKeywords
+        extractKeywordsLocal()
     }
-    
-    private func basicKeywordExtraction() -> [String] {
-        // Fallback basic extraction (much simpler than before)
+
+    private func extractKeywordsLocal() -> [String] {
         let text = summaryText.isEmpty ? noteBody : summaryText
-        let words = text.components(separatedBy: .whitespacesAndNewlines)
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?:;()[]{}\"'")) }
-            .filter { $0.count >= 2 && $0.count <= 10 }
-            .prefix(3)
-        return Array(words)
+        let isKorean = text.range(of: "[\u{AC00}-\u{D7A3}]", options: .regularExpression) != nil
+
+        // Stopwords
+        let koreanStopwords: Set<String> = ["이", "그", "저", "것", "수", "등", "들", "및", "에", "의", "를", "을", "가", "는", "은", "로", "으로", "에서", "와", "과", "도", "만", "하다", "되다", "있다", "없다", "같다", "보다", "주다", "받다", "하고", "하는", "하면", "해서", "그리고", "하지만", "그러나", "그래서", "따라서", "또한", "즉", "왜냐하면", "때문에"]
+        let englishStopwords: Set<String> = ["the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "shall", "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "its", "our", "their", "this", "that", "these", "those", "and", "or", "but", "if", "then", "else", "when", "where", "why", "how", "what", "which", "in", "on", "at", "to", "for", "of", "with", "by", "from", "as", "into", "through", "just", "also", "very", "really", "only", "even"]
+        let stopwords = isKorean ? koreanStopwords : englishStopwords
+
+        // Tokenize and filter
+        let tokens = text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 2 && $0.count <= 15 && !stopwords.contains($0) }
+
+        // Term frequency
+        var freq: [String: Int] = [:]
+        for token in tokens {
+            freq[token, default: 0] += 1
+        }
+
+        // Sort by frequency and return top 5
+        return freq.sorted { $0.value > $1.value }
+            .prefix(5)
+            .map { $0.key }
     }
-    
+
     private var hashTags: [String] {
-        // Extract hashtags from note body
         let regex = try? NSRegularExpression(pattern: "#\\w+", options: [])
         let range = NSRange(location: 0, length: noteBody.utf16.count)
         let matches = regex?.matches(in: noteBody, options: [], range: range) ?? []
-        
+
         return matches.compactMap { match in
             guard let range = Range(match.range, in: noteBody) else { return nil }
             let hashtag = String(noteBody[range])
-            // Remove the # symbol for display
             return String(hashtag.dropFirst())
         }
     }
-    
+
     private var allItems: [(text: String, type: ItemType)] {
         var items: [(text: String, type: ItemType)] = []
-        
-        // Add AI keywords
         items += keywords.map { (text: $0, type: .keyword) }
-        
-        // Add hashtags
         items += hashTags.map { (text: $0, type: .hashtag) }
-        
-        return Array(items.prefix(8)) // Limit total items
+        return Array(items.prefix(8))
     }
-    
+
     enum ItemType {
         case keyword, hashtag
-        
+
         var color: Color {
             switch self {
             case .keyword: return .blue
             case .hashtag: return .green
             }
         }
-        
+
         var icon: String {
             switch self {
             case .keyword: return "brain.head.profile"
@@ -654,21 +409,14 @@ struct KeywordTagsDisplayView: View {
             }
         }
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Section header
             HStack(spacing: 8) {
-                if isLoadingKeywords {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .foregroundStyle(.blue)
-                } else {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(.blue)
-                        .font(.system(size: 14, weight: .semibold))
-                }
-                Text("AI 키워드 & 태그")
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.blue)
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Keywords & Tags")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
@@ -684,14 +432,13 @@ struct KeywordTagsDisplayView: View {
                     .padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
             }
-            
-            if allItems.isEmpty && !isLoadingKeywords {
-                // Empty state
+
+            if allItems.isEmpty {
                 HStack {
-                    Image(systemName: "brain.head.profile")
+                    Image(systemName: "text.magnifyingglass")
                         .foregroundStyle(.tertiary)
                         .font(.system(size: 16, weight: .medium))
-                    Text("AI 분석 중이거나 키워드 없음")
+                    Text("No keywords found")
                         .font(.system(.subheadline, weight: .medium))
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -700,7 +447,6 @@ struct KeywordTagsDisplayView: View {
                 .padding(.vertical, 12)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             } else {
-                // Keywords and Tags grid
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
                     ForEach(Array(allItems.enumerated()), id: \.offset) { index, item in
                         KeywordTagCard(text: item.text, type: item.type)
@@ -715,32 +461,6 @@ struct KeywordTagsDisplayView: View {
                 .stroke(isCurrentLevel ? .blue.opacity(0.3) : Color.primary.opacity(0.06), lineWidth: isCurrentLevel ? 2 : 1)
         )
         .shadow(color: .black.opacity(0.02), radius: 4, x: 0, y: 2)
-        .task {
-            await loadAIKeywords()
-        }
-    }
-    
-    private func loadAIKeywords() async {
-        let textToAnalyze = summaryText.isEmpty ? noteBody : summaryText
-        guard !textToAnalyze.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        
-        await MainActor.run {
-            isLoadingKeywords = true
-        }
-        
-        do {
-            let extractedKeywords = try await aiService.extractKeywords(for: textToAnalyze)
-            await MainActor.run {
-                aiKeywords = extractedKeywords
-                isLoadingKeywords = false
-            }
-        } catch {
-            // Fallback to basic extraction on error
-            await MainActor.run {
-                aiKeywords = basicKeywordExtraction()
-                isLoadingKeywords = false
-            }
-        }
     }
 }
 
@@ -748,21 +468,20 @@ struct KeywordTagsDisplayView: View {
 struct KeywordTagCard: View {
     let text: String
     let type: KeywordTagsDisplayView.ItemType
-    
+
     var body: some View {
         HStack(spacing: 8) {
-            // Icon based on type
             Image(systemName: type.icon)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(type.color)
                 .frame(width: 16, height: 16)
-            
+
             Text(text)
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-            
+
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
