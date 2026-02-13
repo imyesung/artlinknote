@@ -1,53 +1,55 @@
-# Xcode & Derived Data
+# === Xcode ===
 DerivedData/
 build/
 *.xcuserstate
+xcuserdata/
 *.xcworkspace/xcuserdata/
+*.xcscheme.bak
+*.xcscheme.tmp
 
-# Swift Package Manager Artifacts
+# === Swift Package Manager ===
 .build/
 Package.resolved
 
-# User specific settings
-xcuserdata/
-
-# Logs
+# === Logs & Temp ===
 *.log
-
-# Temporary / swap
 *.swp
 *.tmp
+*.bak
 
-# Secrets & Local Config
+# === Secrets & Credentials ===
 Secrets*
 .env
+*.env.*
 api_key.json
 AuthKey_*.p8
 *.p8
+*.pem
 
-# ASC automation scripts (keep separate)
+# === ASC Automation (keep separate from app source) ===
 asc_*.py
 select_build.rb
 
-# Python
+# === Python ===
 .venv/
 __pycache__/
 *.pyc
 
-# Fastlane
+# === Fastlane ===
 fastlane/report.xml
 fastlane/README.md
 
-# Internal docs not to commit (per request)
+# === Internal Docs ===
 DEV_NOTES.md
+DEVELOPMENT_LOG.md
 .github/instructions/
 
-# Keychain export or mock files (if any future)
+# === Keychain ===
 *.keychain
 *.keychain-db
 
-# Generated json/cache
+# === Generated / Runtime ===
 notes.json
 
-# macOS metadata
+# === macOS ===
 .DS_Store
