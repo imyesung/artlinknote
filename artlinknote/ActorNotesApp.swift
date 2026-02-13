@@ -7,11 +7,20 @@ import SwiftUI
 struct ArtlinkApp: App {
     @StateObject private var store = NotesStore()
     
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-testing")
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
-                .task { await store.load() }
+                .task {
+                    // Skip optional/slow startup work during UI tests to avoid watchdog kills.
+                    if !isUITesting {
+                        await store.load()
+                    }
+                }
         }
     }
 }

@@ -21,6 +21,22 @@ xcuserdata/
 # Secrets & Local Config
 Secrets*
 .env
+api_key.json
+AuthKey_*.p8
+*.p8
+
+# ASC automation scripts (keep separate)
+asc_*.py
+select_build.rb
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Fastlane
+fastlane/report.xml
+fastlane/README.md
 
 # Internal docs not to commit (per request)
 DEV_NOTES.md

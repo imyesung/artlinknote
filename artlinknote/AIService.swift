@@ -326,127 +326,378 @@ final class OpenAIService: AIService {
     }
 }
 
-// MARK: - Heuristic Fallbacks
+// MARK: - Improved Heuristic Fallbacks
 extension OpenAIService {
+
+    // MARK: - Stopwords (Extended)
+    private var koreanStopwords: Set<String> {
+        ["이", "그", "저", "것", "수", "등", "들", "및", "에", "의", "를", "을", "가", "이", "는", "은", "로", "으로",
+         "에서", "와", "과", "도", "만", "이런", "저런", "그런", "어떤", "무슨", "이것", "저것", "그것",
+         "하다", "되다", "있다", "없다", "같다", "보다", "주다", "받다", "하고", "하는", "하면", "해서",
+         "그리고", "하지만", "그러나", "그래서", "따라서", "또한", "즉", "왜냐하면", "때문에"]
+    }
+
+    private var englishStopwords: Set<String> {
+        ["the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+         "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "shall",
+         "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+         "my", "your", "his", "its", "our", "their", "this", "that", "these", "those",
+         "and", "or", "but", "if", "then", "else", "when", "where", "why", "how", "what", "which",
+         "in", "on", "at", "to", "for", "of", "with", "by", "from", "as", "into", "through",
+         "during", "before", "after", "above", "below", "between", "under", "again", "further",
+         "just", "also", "very", "really", "actually", "basically", "simply", "only", "even"]
+    }
+
+    // MARK: - Title Generation (Improved)
     private func heuristicTitle(from text: String) -> String {
         let isKorean = detectKorean(in: text)
-        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-        
-        if words.isEmpty {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty {
             return isKorean ? "제목 없음" : "Untitled Note"
         }
-        
-        // Take first meaningful phrase (up to 6 words, ≤48 chars)
+
+        // 1. Try to extract first sentence
+        let firstSentence = extractFirstSentence(from: trimmed)
+
+        // 2. Find key phrase from the sentence
+        let keyPhrase = extractKeyPhrase(from: firstSentence, isKorean: isKorean)
+
+        // 3. If key phrase is good, use it
+        if !keyPhrase.isEmpty && keyPhrase.count <= 48 {
+            return keyPhrase
+        }
+
+        // 4. Fallback: Smart truncation of first sentence
+        if firstSentence.count <= 48 {
+            return firstSentence
+        }
+
+        // 5. Truncate at word boundary
+        let words = firstSentence.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         var title = ""
-        for word in words.prefix(6) {
+        for word in words {
             let candidate = title.isEmpty ? word : "\(title) \(word)"
-            if candidate.count > 48 { break }
+            if candidate.count > 45 { break }
             title = candidate
         }
-        
-        return title.isEmpty ? (isKorean ? "제목 없음" : "Untitled Note") : title
+
+        return title.isEmpty ? (isKorean ? "제목 없음" : "Untitled Note") : title + "..."
     }
-    
+
+    private func extractFirstSentence(from text: String) -> String {
+        // Split by sentence-ending punctuation
+        let patterns = [".", "!", "?", "。", "！", "？"]
+        var endIndex = text.endIndex
+
+        for pattern in patterns {
+            if let range = text.range(of: pattern) {
+                if range.lowerBound < endIndex {
+                    endIndex = range.upperBound
+                }
+            }
+        }
+
+        let sentence = String(text[..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If no sentence found or too long, take first 120 chars
+        if sentence.isEmpty || sentence.count > 120 {
+            return String(text.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return sentence
+    }
+
+    private func extractKeyPhrase(from sentence: String, isKorean: Bool) -> String {
+        let words = sentence.components(separatedBy: .whitespaces)
+            .map { $0.trimmingCharacters(in: CharacterSet.alphanumerics.inverted) }
+            .filter { !$0.isEmpty }
+
+        let stopwords = isKorean ? koreanStopwords : englishStopwords
+
+        // Find content words (non-stopwords)
+        let contentWords = words.filter { word in
+            let lower = word.lowercased()
+            return lower.count >= 2 && !stopwords.contains(lower)
+        }
+
+        // Take first 4-6 content words
+        let keyWords = Array(contentWords.prefix(6))
+
+        if keyWords.count >= 2 {
+            return keyWords.joined(separator: " ")
+        }
+
+        return ""
+    }
+
+    // MARK: - Summary Generation (Improved)
     private func heuristicSummary(from text: String) -> RehearsalSummary {
         let isKorean = detectKorean(in: text)
-        let lines = text.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        
-        let defaultLogline = isKorean ? "연습용 씬 또는 모노로그" : "Practice scene or monologue"
-        let logline = lines.first?.prefix(120).description ?? defaultLogline
-        let beats = lines.prefix(3).map { String($0.prefix(80)) }
-        
-        let defaultBeats = isKorean ? ["장면 시작", "긴장감 조성", "결말 도출"] : ["Begin scene", "Build tension", "Find resolution"]
-        
+        let sentences = splitIntoSentences(text)
+
+        if sentences.isEmpty {
+            let defaultLogline = isKorean ? "연습용 씬 또는 모노로그" : "Practice scene or monologue"
+            let defaultBeats = isKorean
+                ? ["장면 시작", "긴장감 조성", "결말 도출"]
+                : ["Begin scene", "Build tension", "Find resolution"]
+            return RehearsalSummary(logline: defaultLogline, beats: defaultBeats)
+        }
+
+        // Score sentences for importance
+        let scoredSentences = sentences.enumerated().map { (index, sentence) -> (String, Double) in
+            var score = 0.0
+
+            // Position score: first and last sentences are important
+            if index == 0 { score += 3.0 }
+            if index == sentences.count - 1 { score += 2.0 }
+
+            // Length score: medium-length sentences are better
+            let wordCount = sentence.components(separatedBy: .whitespaces).count
+            if wordCount >= 5 && wordCount <= 25 { score += 2.0 }
+
+            // Keyword density score
+            let keywords = isKorean ? actingKeywordsKorean : actingKeywordsEnglish
+            let matchCount = keywords.filter { sentence.lowercased().contains($0) }.count
+            score += Double(matchCount) * 1.5
+
+            // Action verb score (indicates dramatic beats)
+            let actionVerbs = isKorean
+                ? ["결심", "깨닫", "발견", "마주", "직면", "선택", "포기", "시작", "끝", "변화"]
+                : ["decides", "realizes", "discovers", "faces", "chooses", "abandons", "begins", "ends", "changes", "reveals"]
+            let actionCount = actionVerbs.filter { sentence.lowercased().contains($0) }.count
+            score += Double(actionCount) * 2.0
+
+            return (sentence, score)
+        }
+
+        // Best sentence for logline
+        let sortedByScore = scoredSentences.sorted { $0.1 > $1.1 }
+        let logline = String(sortedByScore.first?.0.prefix(120) ?? "")
+
+        // Extract beats: find turning points or distinct sections
+        let beats = extractBeats(from: text, sentences: sentences, isKorean: isKorean)
+
         return RehearsalSummary(
-            logline: String(logline),
-            beats: beats.isEmpty ? defaultBeats : beats
+            logline: logline.isEmpty ? (isKorean ? "캐릭터의 여정" : "A character's journey") : logline,
+            beats: beats.isEmpty ? (isKorean ? ["시작", "전개", "마무리"] : ["Beginning", "Development", "Resolution"]) : beats
         )
     }
-    
+
+    private func splitIntoSentences(_ text: String) -> [String] {
+        // Better sentence splitting
+        var sentences: [String] = []
+        var current = ""
+
+        for char in text {
+            current.append(char)
+
+            // Check for sentence endings
+            if [".", "!", "?", "。", "！", "？"].contains(String(char)) {
+                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.count >= 10 { // Minimum sentence length
+                    sentences.append(trimmed)
+                }
+                current = ""
+            }
+        }
+
+        // Don't forget remaining text
+        let remaining = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if remaining.count >= 10 {
+            sentences.append(remaining)
+        }
+
+        return sentences
+    }
+
+    private func extractBeats(from text: String, sentences: [String], isKorean: Bool) -> [String] {
+        // Look for natural section breaks
+        let paragraphs = text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.count >= 15 }
+
+        if paragraphs.count >= 2 && paragraphs.count <= 5 {
+            // Use paragraph first sentences as beats
+            return paragraphs.prefix(5).compactMap { para in
+                let firstSentence = extractFirstSentence(from: para)
+                return firstSentence.count <= 80 ? firstSentence : String(firstSentence.prefix(77)) + "..."
+            }
+        }
+
+        // Otherwise, pick key sentences evenly distributed
+        if sentences.count >= 3 {
+            let indices = [0, sentences.count / 2, sentences.count - 1]
+            return indices.compactMap { idx in
+                guard idx < sentences.count else { return nil }
+                let s = sentences[idx]
+                return s.count <= 80 ? s : String(s.prefix(77)) + "..."
+            }
+        }
+
+        return sentences.prefix(3).map { s in
+            s.count <= 80 ? s : String(s.prefix(77)) + "..."
+        }
+    }
+
+    // MARK: - Tag Generation (Improved)
+    private var actingKeywordsKorean: [String] {
+        ["감정", "표현", "캐릭터", "연기", "기법", "즉흥", "호흡", "발성", "갈등", "긴장",
+         "대사", "동작", "제스처", "리액션", "서브텍스트", "비트", "목표", "장애물", "전술"]
+    }
+
+    private var actingKeywordsEnglish: [String] {
+        ["emotion", "expression", "character", "acting", "technique", "improvisation",
+         "breathing", "voice", "conflict", "tension", "dialogue", "movement", "gesture",
+         "reaction", "subtext", "beat", "objective", "obstacle", "tactic"]
+    }
+
     private func heuristicTags(from text: String) -> [String] {
         let isKorean = detectKorean(in: text)
         let lowercased = text.lowercased()
-        
-        if isKorean {
-            let koreanTags = [
-                ("#리허설", ["리허설", "연습", "씬", "장면"]),
-                ("#모노로그", ["모노로그", "독백", "연설"]),
-                ("#캐릭터", ["캐릭터", "인물", "역할"]),
-                ("#감정", ["감정", "기분", "화남", "슬픔", "기쁨"]),
-                ("#기법", ["기법", "방법", "접근", "스킬"])
-            ]
-            
-            let matched = koreanTags.compactMap { (tag, keywords) in
-                keywords.contains { lowercased.contains($0) } ? tag : nil
+
+        // Extended tag categories with weighted keywords
+        let tagCategories: [(tag: String, keywords: [String], weight: Int)] = isKorean ? [
+            // 형식/장르
+            ("#모노로그", ["모노로그", "독백", "혼잣말", "솔로"], 3),
+            ("#대화씬", ["대화", "상대역", "파트너", "듀오", "대본"], 3),
+            ("#오디션", ["오디션", "자기소개", "슬레이트", "콜백"], 4),
+            // 감정/톤
+            ("#드라마", ["드라마", "극적", "진지", "무거운", "슬픔", "비극"], 2),
+            ("#코미디", ["코미디", "웃긴", "유머", "희극", "가벼운"], 2),
+            ("#로맨스", ["로맨스", "사랑", "연인", "이별", "설렘"], 2),
+            ("#스릴러", ["스릴러", "긴장", "서스펜스", "공포", "미스터리"], 2),
+            // 기법/스킬
+            ("#감정연기", ["감정", "울음", "눈물", "분노", "기쁨", "슬픔"], 2),
+            ("#신체연기", ["동작", "움직임", "제스처", "마임", "신체"], 2),
+            ("#발성", ["발성", "목소리", "톤", "억양", "사투리", "액센트"], 2),
+            // 상태/목적
+            ("#리허설", ["리허설", "연습", "연기연습", "대본리딩"], 2),
+            ("#분석", ["분석", "해석", "서브텍스트", "의도", "목표"], 2),
+            ("#메모", ["메모", "노트", "기록", "생각", "아이디어"], 1)
+        ] : [
+            // Format/Genre
+            ("#monologue", ["monologue", "solo", "soliloquy", "aside"], 3),
+            ("#scene", ["scene", "dialogue", "partner", "duo", "script"], 3),
+            ("#audition", ["audition", "slate", "callback", "casting", "self-tape"], 4),
+            // Emotion/Tone
+            ("#drama", ["drama", "dramatic", "serious", "heavy", "tragedy"], 2),
+            ("#comedy", ["comedy", "funny", "humor", "comedic", "light"], 2),
+            ("#romance", ["romance", "love", "romantic", "heartbreak", "passion"], 2),
+            ("#thriller", ["thriller", "tension", "suspense", "horror", "mystery"], 2),
+            // Technique/Skill
+            ("#emotional", ["emotion", "cry", "tears", "anger", "joy", "grief"], 2),
+            ("#physical", ["movement", "gesture", "physical", "mime", "body"], 2),
+            ("#vocal", ["voice", "vocal", "tone", "accent", "dialect", "projection"], 2),
+            // Status/Purpose
+            ("#rehearsal", ["rehearsal", "practice", "run-through", "reading"], 2),
+            ("#analysis", ["analysis", "breakdown", "subtext", "intention", "objective"], 2),
+            ("#notes", ["note", "memo", "thought", "idea", "reminder"], 1)
+        ]
+
+        // Score each tag category
+        var tagScores: [(String, Int)] = []
+
+        for category in tagCategories {
+            let matchCount = category.keywords.filter { lowercased.contains($0) }.count
+            if matchCount > 0 {
+                tagScores.append((category.tag, matchCount * category.weight))
             }
-            return Array(matched.prefix(3)) + (matched.isEmpty ? ["#노트"] : [])
-        } else {
-            let englishTags = [
-                ("#rehearsal", ["rehearsal", "practice", "scene"]),
-                ("#monologue", ["monologue", "solo", "speech"]),
-                ("#character", ["character", "role", "person"]),
-                ("#emotion", ["feel", "emotion", "mood", "angry", "sad", "happy"]),
-                ("#technique", ["technique", "method", "approach", "skill"])
-            ]
-            
-            let matched = englishTags.compactMap { (tag, keywords) in
-                keywords.contains { lowercased.contains($0) } ? tag : nil
-            }
-            return Array(matched.prefix(3)) + (matched.isEmpty ? ["#note"] : [])
         }
+
+        // Sort by score and take top 5
+        let sortedTags = tagScores.sorted { $0.1 > $1.1 }.map { $0.0 }
+
+        if sortedTags.isEmpty {
+            // Extract from content words as fallback
+            return extractContentTags(from: text, isKorean: isKorean)
+        }
+
+        return Array(sortedTags.prefix(5))
     }
-    
+
+    private func extractContentTags(from text: String, isKorean: Bool) -> [String] {
+        let words = text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 }
+
+        let stopwords = isKorean ? koreanStopwords : englishStopwords
+        let contentWords = words.filter { !stopwords.contains($0) }
+
+        // Word frequency
+        var freq: [String: Int] = [:]
+        for word in contentWords {
+            freq[word, default: 0] += 1
+        }
+
+        // Top words as tags
+        let topWords = freq.sorted { $0.value > $1.value }
+            .prefix(3)
+            .map { "#\($0.key)" }
+
+        return topWords.isEmpty ? [isKorean ? "#메모" : "#note"] : Array(topWords)
+    }
+
+    // MARK: - Keyword Extraction (Improved with TF-IDF style)
     private func heuristicKeywords(from text: String) -> [String] {
         let isKorean = detectKorean(in: text)
         let lowercased = text.lowercased()
-        
-        if isKorean {
-            // 기술/개발 관련
-            let techKeywords = ["알고리즘", "스케줄링", "최적화", "성능", "멀티코어", "CPU", "메모리", "프로세서", "시스템", "구조", "설계", "분석"]
-            // 연기/예술 관련  
-            let actingKeywords = ["감정", "표현", "캐릭터", "연기", "기법", "즉흥", "호흡", "발성", "갈등", "긴장"]
-            // 일반적인 중요 키워드
-            let generalKeywords = ["방법", "전략", "과정", "결과", "문제", "해결", "개선", "효과", "영향", "변화"]
-            
-            let allKeywords = techKeywords + actingKeywords + generalKeywords
-            let matched = allKeywords.filter { lowercased.contains($0) }
-            
-            // 매칭되는 키워드가 없으면 텍스트에서 직접 추출
-            if matched.isEmpty {
-                let words = text.components(separatedBy: .whitespacesAndNewlines)
-                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?:;()[]{}\"'")) }
-                    .filter { $0.count >= 2 && $0.count <= 10 }
-                    .prefix(3)
-                return Array(words)
+
+        // Tokenize
+        let tokens = lowercased
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 2 }
+
+        let stopwords = isKorean ? koreanStopwords : englishStopwords
+
+        // Calculate term frequency
+        var termFreq: [String: Int] = [:]
+        for token in tokens {
+            if !stopwords.contains(token) && token.count >= 2 && token.count <= 15 {
+                termFreq[token, default: 0] += 1
             }
-            
-            return Array(matched.prefix(6))
-        } else {
-            // 기술/개발 관련
-            let techKeywords = ["algorithm", "scheduling", "optimization", "performance", "multicore", "cpu", "memory", "processor", "system", "architecture", "design", "analysis"]
-            // 연기/예술 관련
-            let actingKeywords = ["emotion", "expression", "character", "acting", "technique", "improvisation", "breathing", "voice", "conflict", "tension"]
-            // 일반적인 중요 키워드
-            let generalKeywords = ["method", "strategy", "process", "result", "problem", "solution", "improvement", "effect", "impact", "change"]
-            
-            let allKeywords = techKeywords + actingKeywords + generalKeywords
-            let matched = allKeywords.filter { lowercased.contains($0) }
-            
-            // 매칭되는 키워드가 없으면 텍스트에서 직접 추출
-            if matched.isEmpty {
-                let words = text.components(separatedBy: .whitespacesAndNewlines)
-                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?:;()[]{}\"'")) }
-                    .filter { $0.count >= 2 && $0.count <= 10 }
-                    .prefix(3)
-                return Array(words)
-            }
-            
-            return Array(matched.prefix(6))
         }
+
+        // Boost domain-specific keywords
+        let domainBoost: [String: Double] = isKorean ? [
+            // Acting terms get 2x boost
+            "감정": 2.0, "캐릭터": 2.0, "연기": 2.0, "대사": 2.0, "장면": 2.0,
+            "동기": 2.0, "목표": 2.0, "갈등": 2.0, "서브텍스트": 2.5, "비트": 2.0,
+            "즉흥": 2.0, "리액션": 2.0, "제스처": 2.0, "호흡": 1.5, "발성": 1.5
+        ] : [
+            "emotion": 2.0, "character": 2.0, "acting": 2.0, "dialogue": 2.0, "scene": 2.0,
+            "motivation": 2.0, "objective": 2.0, "conflict": 2.0, "subtext": 2.5, "beat": 2.0,
+            "improvisation": 2.0, "reaction": 2.0, "gesture": 2.0, "breathing": 1.5, "voice": 1.5
+        ]
+
+        // Score each term
+        var scoredTerms: [(String, Double)] = []
+        for (term, freq) in termFreq {
+            var score = Double(freq)
+
+            // Apply domain boost
+            if let boost = domainBoost[term] {
+                score *= boost
+            }
+
+            // Longer words slightly more important (likely more specific)
+            if term.count >= 5 { score *= 1.2 }
+            if term.count >= 8 { score *= 1.3 }
+
+            scoredTerms.append((term, score))
+        }
+
+        // Sort by score and return top keywords
+        let topKeywords = scoredTerms
+            .sorted { $0.1 > $1.1 }
+            .prefix(6)
+            .map { $0.0 }
+
+        if topKeywords.isEmpty {
+            return isKorean ? ["메모", "노트"] : ["note", "memo"]
+        }
+
+        return Array(topKeywords)
     }
 }
 

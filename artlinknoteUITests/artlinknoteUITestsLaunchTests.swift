@@ -2,8 +2,6 @@
 //  artlinknoteUITestsLaunchTests.swift
 //  artlinknoteUITests
 //
-//  Created by yesunglim on 2025-08-24.
-//
 
 import XCTest
 
@@ -20,10 +18,14 @@ final class artlinknoteUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing", "-disable-animations"]
+        app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable" // quieter logs
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
+        // Sanity check: first screen should have the navigation title "Artlink"
+        // (ContentView.navigationTitle("Artlink"))
+        let navBar = app.navigationBars["Artlink"]
+        XCTAssertTrue(navBar.waitForExistence(timeout: 5), "App did not reach initial screen in time")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

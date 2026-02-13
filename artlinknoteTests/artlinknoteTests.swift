@@ -2,8 +2,6 @@
 //  artlinknoteTests.swift
 //  artlinknoteTests
 //
-//  Created by yesunglim on 2025-08-24.
-//
 
 import Testing
 @testable import artlinknote
